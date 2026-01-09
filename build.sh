@@ -31,10 +31,40 @@ $CROSS_PREFIX-objcopy -O binary -S $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw
 # 使用gnu工具生成反汇编文件，方便调试分析（当然我们这个代码太简单，不是很需要）
 $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.elf > $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.lst
 
-cd $SHELL_FOLDER/output/lowlevelboot
+#编译 opensbi
+echo "------------------------- 编译opensbi --------------------------------"
+if [ ! -d "$SHELL_FOLDER/output/opensbi" ]; then  
+mkdir $SHELL_FOLDER/output/opensbi
+fi  
+cd $SHELL_FOLDER/opensbi-1.2
+make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star 
+cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/*.bin $SHELL_FOLDER/output/opensbi/
+
+# 生成sbi.dtb
+cd $SHELL_FOLDER/dts
+dtc -I dts -O dtb -o $SHELL_FOLDER/output/opensbi/quard_star_sbi.dtb quard_star_sbi.dts
+
+# 合成firmware固件
+if [ ! -d "$SHELL_FOLDER/output/fw" ]; then  
+mkdir $SHELL_FOLDER/output/fwc
+fi  
+cd $SHELL_FOLDER/output/fw
 rm -rf fw.bin
-#创建一个32M的空文件fw.bin;从0偏移处写入lowlevel_fw.bin程序
+#填充32K的0
 dd of=fw.bin bs=1k count=32k if=/dev/zero
-dd of=fw.bin bs=1k conv=notrunc seek=0 if=lowlevel_fw.bin
+#写入lowlevelboot程序 偏移量0k
+dd of=fw.bin bs=1k conv=notrunc seek=0 if=$SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.bin
+#写入quard_star_sbi.dtb 偏移量512,因此fdt的地址偏移量为0x80000
+dd of=fw.bin bs=1k conv=notrunc seek=512 if=$SHELL_FOLDER/output/opensbi/quard_star_sbi.dtb
+#写入opensbi程序 偏移量2k*1k=2048k=0x2000000
+dd of=fw.bin bs=1k conv=notrunc seek=2k if=$SHELL_FOLDER/output/opensbi/fw_jump.bin
+
+
+
+# cd $SHELL_FOLDER/output/lowlevelboot
+# rm -rf fw.bin
+# #创建一个32M的空文件fw.bin;从0偏移处写入lowlevel_fw.bin程序
+# dd of=fw.bin bs=1k count=32k if=/dev/zero
+# dd of=fw.bin bs=1k conv=notrunc seek=0 if=lowlevel_fw.bin
 
 
