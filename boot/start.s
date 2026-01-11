@@ -10,6 +10,7 @@
 	bne		t2, x0, 1b              /* 判断t2是否等于0，不是就跳转前一个符号1处（b是向前的意思） */
 	.endm                                /* 宏结束 */
 
+ # 一个字一个字的循环加载固件到 DRAM处
 	.macro load_data,_src_start,_dst_start,_dst_end /* 定义一个简单load_data宏（这里我们按word拷贝数据，实际上64位可以按double word来拷贝，效率更高）_src_start为源地址，_dst_start为目标地址，_dst_end为目标结束地址 */
 	bgeu	\_dst_start, \_dst_end, 2f   /* 判断目标结束地址大于起始地址，即是否合法 */
 1:
@@ -45,6 +46,18 @@ _start:
     li		a2,	0x8228
 	slli	a2,	a2, 16       //a2 = 0x82280000
 	load_data a0,a1,a2  /* 拷贝 0x20080000 到 0x82200000*/
+
+	//load trusted_fw.bin
+	//[0x20400000:0x20800000] --> [0x80200000:0x80600000]
+    li		a0,	0x204
+	slli	a0,	a0, 20      //a0 = 0x20400000
+    li		a1,	0xb00
+	slli	a1,	a1, 20      //a1 = 0xb0000000
+    li		a2,	0xb04
+	slli	a2,	a2, 20      //a2 = 0xb0400000
+	load_data a0,a1,a2
+
+
 
     csrr    a0, mhartid
     li		t0,	0x0     
