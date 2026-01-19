@@ -36,6 +36,9 @@ config TARGET_QEMU_VIRT
 	bool "Support QEMU Virt & RVVM Boards"
 	select BOARD_LATE_INIT
 
+config TARGET_QEMU_QUARD_STAR 
+	bool "Support QEMU Quard-Star Board"
+
 config TARGET_SIFIVE_UNLEASHED
 	bool "Support SiFive Unleashed Board"
 
@@ -108,6 +111,7 @@ source "board/andestech/voyager/Kconfig"
 source "board/aspeed/ibex_ast2700/Kconfig"
 source "board/canaan/k230_canmv/Kconfig"
 source "board/emulation/qemu-riscv/Kconfig"
+source "board/emulation/qemu-quard-star/Kconfig"
 source "board/microchip/mpfs_generic/Kconfig"
 source "board/openpiton/riscv64/Kconfig"
 source "board/sifive/unleashed/Kconfig"

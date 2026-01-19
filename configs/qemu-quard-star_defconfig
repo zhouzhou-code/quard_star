@@ -1,0 +1,42 @@
+#qemu-quard-star_defconfig 内容如下： 和 qemu-riscv64_smode_defconfig(默认的s模式的defconfig)对比分析
+#一样的
+CONFIG_RISCV=y
+#特有的，我们只有一块DRAM                  
+CONFIG_NR_DRAM_BANKS=1   
+#一样的        
+CONFIG_ENV_SIZE=0x20000
+#特有的，平台名称        
+CONFIG_TARGET_QEMU_QUARD_STAR=y
+#一样的 
+CONFIG_ARCH_RV64I=y
+#一样的             
+CONFIG_RISCV_SMODE=y
+#一样的            
+CONFIG_DISTRO_DEFAULTS=y
+#一样的        
+CONFIG_FIT=y     
+#一样的               
+CONFIG_DISPLAY_CPUINFO=y 
+#一样的       
+CONFIG_DISPLAY_BOARDINFO=y 
+#一样的，自检EFI子系统     
+CONFIG_CMD_BOOTEFI_SELFTEST=y   
+#一样的，EFI下NVM编辑命令
+CONFIG_CMD_NVEDIT_EFI=y         
+
+#特有的，优先使用早期阶段提供的设备树；优先使用前一级引导程序/固件提供的设备树（FDT）”。
+#启用后，U‑Boot 在早期初始化会采用固件(例如 OpenSBI)通过 fdtcontroladdr 传入的 FDT，
+#而不是强制从存储或内置默认DTB重新加载或替换它
+CONFIG_OF_PRIOR_STAGE=y         
+
+#启用环境变量重定位时的GD结构体支持
+#在重定位时，环境变量的地址会更新到 GD 结构体中
+CONFIG_SYS_RELOC_GD_ENV_ADDR=y #特有的
+
+#一样的; MTD（Memory Technology Device）是 Flash 设备的通用抽象层
+CONFIG_DM_MTD=y              
+
+
+#作者原来没提供，但是uboot新版一定要指定？先加上?不，好像在板级的.h文件里加上了！
+CONFIG_SYS_LOAD_ADDR=0x80200000
+#不需要CONFIG_SYS_MAX_FLASH_BANKS表示最大的flash存储体数吗？
