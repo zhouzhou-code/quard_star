@@ -8,7 +8,7 @@ ENTRY(_start)
 MEMORY
 { 
    /* 定义一个名为"ddr"的内存区域，属性：可读(r)、可执行(x)、可分配(a)、已初始化(i)，但不可写(!w) */
-   ddr (rxai!w) : ORIGIN = 0xBF800000, LENGTH = 7M  /* 起始地址0xBF800000，长度7M字节 */
+   ddr (rxai!w) : ORIGIN = 0xBF800000, LENGTH = 4M  /* 起始地址0xBF800000，长度4M字节 */
 }
 
 /* 开始定义输出文件的段(section)布局 */

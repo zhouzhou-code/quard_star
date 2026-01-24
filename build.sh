@@ -37,7 +37,8 @@ if [ ! -d "$SHELL_FOLDER/output/opensbi" ]; then
 mkdir $SHELL_FOLDER/output/opensbi
 fi  
 cd $SHELL_FOLDER/opensbi-1.2
-make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star 
+# make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star 
+make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star FW_JUMP_ADDR=0xB0200000 FW_JUMP_FDT_ADDR=0xB0000000
 cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/fw_jump.bin $SHELL_FOLDER/output/opensbi/fw_jump.bin
 cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/fw_jump.elf $SHELL_FOLDER/output/opensbi/fw_jump.elf
 $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/opensbi/fw_jump.elf > $SHELL_FOLDER/output/opensbi/fw_jump.lst
@@ -81,15 +82,33 @@ cd $SHELL_FOLDER/output/fw
 rm -rf fw.bin
 #填充32K的0
 dd of=fw.bin bs=1k count=32k if=/dev/zero
+
 #写入lowlevelboot程序 偏移量0k
 dd of=fw.bin bs=1k conv=notrunc seek=0 if=$SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.bin
 #写入quard_star_sbi.dtb 偏移量512,因此fdt的地址偏移量为0x80000
 dd of=fw.bin bs=1k conv=notrunc seek=512 if=$SHELL_FOLDER/output/opensbi/quard_star_sbi.dtb
 #写入quard_star_uboot.dtb 偏移量1024,因此fdt的地址偏移量为0x100000
 dd of=fw.bin bs=1k conv=notrunc seek=1k if=$SHELL_FOLDER/output/uboot/quard_star_uboot.dtb
-#写入opensbi程序 偏移量2k*1k=2048k=0x2000000
+#写入opensbi程序 偏移量2k*1k=2048k=0x200000
 dd of=fw.bin bs=1k conv=notrunc seek=2k if=$SHELL_FOLDER/output/opensbi/fw_jump.bin
 #写入trusted_domain.bin 偏移量1k*4k=0x400000
 dd of=fw.bin bs=1k conv=notrunc seek=4k if=$SHELL_FOLDER/output/trusted_domain/trusted_fw.bin
 #写入uboot 偏移量8k*1k=0x800000
 dd of=fw.bin bs=1k conv=notrunc seek=8k if=$SHELL_FOLDER/output/uboot/u-boot.bin
+
+
+#写入固件的偏移地址改成如下:
+# load opensbi_fw.bin 
+# [0x00200000
+
+# load qemu_sbi.dtb
+# [0x00080000
+
+# load trusted_fw.bin
+# [0x00400000
+
+# load qemu_uboot.dtb
+# [0x00100000
+
+# load u-boot.bin
+# [0x00800000

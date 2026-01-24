@@ -14,4 +14,4 @@ platform-objs-y += platform.o
 # Blobs to build
 FW_JUMP=y
 FW_TEXT_START=0xBFF80000
-FW_JUMP_ADDR=0x0
+FW_JUMP_ADDR=0xB0200000

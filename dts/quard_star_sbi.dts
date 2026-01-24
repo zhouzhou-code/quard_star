@@ -16,11 +16,37 @@
 		    compatible = "opensbi,domain,config"; /* 节点名称 */
 
 	/*--------------------------------定义和内存相关的节点-----------------------------------------------*/
-            tmem: tmem {   /* 定义内存节点：普通ram 地址范围: 0xBF800000 - 0xC0000000 */
+            tmem0: tmem0 {   /* 定义内存节点：普通ram 地址范围: 0xBF800000 - 0xBFC00000 */
                 compatible = "opensbi,domain,memregion";  /* 节点名称 */
                 base = <0x0 0xBF800000>; /* 起始地址注意64位地址哦 */
                 order = <22>; /* 内存大小即size=2^22  =4M*/
             };
+			tmem1: tmem1 {   /* 定义内存节点：普通ram 地址范围:0xBFC00000 - 0xBFE00000 */
+				compatible = "opensbi,domain,memregion";  /* 节点名称 */
+				base = <0x0 0xBFC00000>; /* 起始地址注意64位地址哦 */
+				order = <21>; /* 内存大小即size=2^21  =2M*/
+			};
+			tmem2: tmem2 {   /* 定义内存节点：普通ram 地址范围:0xBFE00000 - 0xBFF00000 */
+				compatible = "opensbi,domain,memregion";  /* 节点名称 */
+				base = <0x0 0xBFE00000>; /* 起始地址注意64位地址哦 */
+				order = <20>; /* 内存大小即size=2^20  =1M*/
+			};
+			tmem3: tmem3 {  /* 定义内存节点：普通ram 地址范围:0xBFF00000 - 0xBFF80000 */
+				compatible = "opensbi,domain,memregion";  /* 节点名称 */
+				base = <0x0 0xBFF00000>; /* 起始地址注意64位地址哦 */
+				order = <19>; /* 内存大小即size=2^19=512k*/
+			};
+
+			/* 中间有一块地址 0xBFF80000-0xBFFC0000没有划分tmen */
+
+			// tmem4: tmem4 {  /* 定义内存节点：普通ram 地址范围:0xBFFC0000 - 0xC0000000 */
+			// 	compatible = "opensbi,domain,memregion";  /* 节点名称 */
+			// 	base = <0x0 0xBFFC0000>; /* 起始地址注意64位地址哦 */
+			// 	order = <18>; /* 内存大小即size=2^18=256k*/
+			// };
+
+
+
 
             tuart: tuart {  /* 定义mmio节点：内存映射IO */
                 compatible = "opensbi,domain,memregion";  /* 节点名称 */
@@ -39,10 +65,11 @@
             tdomain: trusted-domain { /* 定义domian节点：tdomain 安全域 */
                 compatible = "opensbi,domain,instance";  /* 节点名称 */
                 possible-harts = <&cpu7>; /* domain中允许使用的cpu core */
-                regions = <&tmem 0x7>, <&tuart 0x7>, <&allmem 0x7>;/* 各个内存/mmio区域的权限，3bit读写运行权限 0x7拥有全部权限 */
-                boot-hart = <&cpu7>; /* domian中用于boot的core */
+                //regions = <&tmem 0x7>, <&tuart 0x7>, <&allmem 0x7>;/* 各个内存/mmio区域的权限，3bit读写运行权限 0x7拥有全部权限 */
+        		regions = <&tmem0 0x7>,<&tmem1 0x7>,<&tmem2 0x7>,<&tmem3 0x7>, <&tuart 0x7>, <&allmem 0x7>;/* 各个内存/mmio区域的权限，3bit读写运行权限 0x7拥有全部权限 */
+				boot-hart = <&cpu7>; /* domian中用于boot的core */
                 next-arg1 = <0x0 0x00000000>; /* 下级程序的参数 */
-		        nnext-addr = <0x0 0xBF800000>; /* 下级程序的起始地址 */ 
+		        next-addr = <0x0 0xBF800000>; /* 下级程序的起始地址 */ 
 		        next-mode = <0x0>; /* 下级程序的允许模式 0为U模式，1为S模式 */
                 system-reset-allowed; /* 允许复位 */
             };
@@ -50,10 +77,11 @@
 		    udomain: untrusted-domain { /* 定义domian节点：udomain 非安全域 */
 		        compatible = "opensbi,domain,instance";
 		        possible-harts = <&cpu0 &cpu1 &cpu2 &cpu3 &cpu4 &cpu5 &cpu6>;
-		        regions = <&tmem 0x0>, <&tuart 0x0>, <&allmem 0x7>; /* tmem的权限为0，无法不能读写执行这块内存*/
+		        //regions = <&tmem 0x0>, <&tuart 0x0>, <&allmem 0x7>; /* tmem的权限为0，无法不能读写执行这块内存*/
+				regions = <&tmem0 0x0>,<&tmem1 0x0>,<&tmem2 0x0>,<&tmem3 0x0>, <&tuart 0x0>, <&allmem 0x7>; /* tmem的权限为0，无法不能读写执行这块内存*/
 				boot-hart = <&cpu0>;
-		        next-arg1 = <0x0 0xb0000000>; 
-		        next-addr = <0x0 0xb0200000>;
+		        next-arg1 = <0x0 0xB0000000>; 
+		        next-addr = <0x0 0xB0200000>;
 		        next-mode = <0x1>;
 		        system-reset-allowed;
 		    };
@@ -274,7 +302,7 @@
 		};
 
 		uart1: uart1@10001000 {
-			interrupts = <0xa>;
+			interrupts = <0xb>;
 			interrupt-parent = <0x11>;
 			clock-frequency = <0x384000>;
 			reg = <0x0 0x10001000 0x0 0x1000>;
@@ -282,7 +310,7 @@
 		};
 
         uart2: uart2@10002000 {
-			interrupts = <0xa>;
+			interrupts = <0xc>;
 			interrupt-parent = <0x11>;
 			clock-frequency = <0x384000>;
 			reg = <0x0 0x10002000 0x0 0x1000>;

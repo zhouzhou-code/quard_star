@@ -6,10 +6,12 @@ $SHELL_FOLDER/output/qemu/bin/qemu-system-riscv64 \
 -m 1G \
 -smp 8 \
 -bios none \
--serial mon:stdio \
 -drive if=pflash,bus=0,unit=0,format=raw,file=$SHELL_FOLDER/output/fw/fw.bin \
 -d in_asm -D qemu.log \
--nographic --parallel none
+-serial mon:stdio \
+-nographic --parallel none \
+-s -S
+# --serial vc:$DEFAULT_VC --serial vc:$DEFAULT_VC --serial vc:$DEFAULT_VC --monitor vc:$DEFAULT_VC --parallel none
 
 #-monitor stdio
 
