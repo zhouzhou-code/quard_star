@@ -45,10 +45,23 @@
 			// 	order = <18>; /* 内存大小即size=2^18=256k*/
 			// };
 
+			tuart0: tuart0 {  /* 定义mmio节点：内存映射IO */
+				compatible = "opensbi,domain,memregion";  /* 节点名称 */
+				base = <0x0 0x10000000>; /* 起始地址 */
+				order = <8>; /* size=2^8 */
+				mmio;  /* mmio属性：memory-mapped I/O */
+				devices = <&uart0>; /* 关联到设备节点上 */
+			};	
 
+		    tuart1: tuart1 {  /* 定义mmio节点：内存映射IO */
+                compatible = "opensbi,domain,memregion";  /* 节点名称 */
+                base = <0x0 0x10001000>; /* 起始地址 */
+                order = <8>; /* size=2^8 */
+                mmio;  /* mmio属性：memory-mapped I/O */
+                devices = <&uart1>; /* 关联到设备节点上 */
+            };	
 
-
-            tuart: tuart {  /* 定义mmio节点：内存映射IO */
+            tuart2: tuart2 {  /* 定义mmio节点：内存映射IO */
                 compatible = "opensbi,domain,memregion";  /* 节点名称 */
                 base = <0x0 0x10002000>; /* 起始地址 */
                 order = <8>; /* size=2^8 */
@@ -65,8 +78,10 @@
             tdomain: trusted-domain { /* 定义domian节点：tdomain 安全域 */
                 compatible = "opensbi,domain,instance";  /* 节点名称 */
                 possible-harts = <&cpu7>; /* domain中允许使用的cpu core */
-                //regions = <&tmem 0x7>, <&tuart 0x7>, <&allmem 0x7>;/* 各个内存/mmio区域的权限，3bit读写运行权限 0x7拥有全部权限 */
-        		regions = <&tmem0 0x7>,<&tmem1 0x7>,<&tmem2 0x7>,<&tmem3 0x7>, <&tuart 0x7>, <&allmem 0x7>;/* 各个内存/mmio区域的权限，3bit读写运行权限 0x7拥有全部权限 */
+				/* 各个内存/mmio区域的权限，3bit读写运行权限 0x7拥有全部权限 */
+        		regions = <&tmem0 0x7>,<&tmem1 0x7>,<&tmem2 0x7>,<&tmem3 0x7>, <&allmem 0x7>,
+							<&tuart0 0x7>, <&tuart1 0x7>,<&tuart2 0x7>;			
+				
 				boot-hart = <&cpu7>; /* domian中用于boot的core */
                 next-arg1 = <0x0 0x00000000>; /* 下级程序的参数 */
 		        next-addr = <0x0 0xBF800000>; /* 下级程序的起始地址 */ 
@@ -77,8 +92,9 @@
 		    udomain: untrusted-domain { /* 定义domian节点：udomain 非安全域 */
 		        compatible = "opensbi,domain,instance";
 		        possible-harts = <&cpu0 &cpu1 &cpu2 &cpu3 &cpu4 &cpu5 &cpu6>;
-		        //regions = <&tmem 0x0>, <&tuart 0x0>, <&allmem 0x7>; /* tmem的权限为0，无法不能读写执行这块内存*/
-				regions = <&tmem0 0x0>,<&tmem1 0x0>,<&tmem2 0x0>,<&tmem3 0x0>, <&tuart 0x0>, <&allmem 0x7>; /* tmem的权限为0，无法不能读写执行这块内存*/
+				/* tmem的权限为0，无法不能读写执行这块内存*/
+				regions = <&tmem0 0x0>,<&tmem1 0x0>,<&tmem2 0x0>,<&tmem3 0x0>, 
+							<&tuart0 0x7>, <&tuart1 0x7>, <&tuart2 0x7>, <&allmem 0x7>; 
 				boot-hart = <&cpu0>;
 		        next-arg1 = <0x0 0xB0000000>; 
 		        next-addr = <0x0 0xB0200000>;

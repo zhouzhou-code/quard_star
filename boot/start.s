@@ -1,116 +1,138 @@
-.macro loop,cunt                   /* 定义一个简单loop宏,cunt是loop参数 */
-    li      t1, 0xffff             /* 加载立即数到t1 */
-    li      t2, \cunt              /* 加载立即数到t2 */
-1:
-    nop                             /* 空指令nop */
-    addi    t1, t1, -1              /* t1-- */
-    bne     t1, x0, 1b              /* 判断t1是否等于0，不是就跳转前以符号1处（b是向前的意思） */
-    li      t1, 0xffff              /* 加载立即数到t1 */
-    addi    t2, t2, -1              /* t2-- */
-    bne     t2, x0, 1b              /* 判断t2是否等于0，不是就跳转前一个符号1处（b是向前的意思） */     
-    .endm        
+/* ================= 修改点1：定义绝对地址和魔数 ================= */
+#define LOCK_ADDR       0x8000       /* 使用验证过可写的 SRAM 地址 */
+#define MAGIC_GO_VAL    0x88888888   /* 魔法数，读到它才准走 */
 
-/* 定义一个简单load_data宏（这里我们按word拷贝数据，实际上64位可以按double word来拷贝，效率更高）
-    _src_start为源地址，_dst_start为目标地址，_dst_end为目标结束地址 */
-    .macro load_data,_src_start,_dst_start,_dst_end
-    bgeu    \_dst_start, \_dst_end, 2f    /* 判断目标结束地址大于起始地址，即是否合法 */
+/* ================= 修改点2：减小循环次数，防止睡太久 ================= */
+.macro loop,cunt
+    li      t1, 0xff        /* [修改] 从 0xffff 改为 0xff，大大缩短延时 */
+    li      t2, \cunt
 1:
-    lw      t0, (\_src_start)             /* 加载源地址内数据到t0 */
-    sw      t0, (\_dst_start)             /* 写入t0到目标地址内 */
-    addi    \_src_start, \_src_start, 4   /* 源地址+4 */
-    addi    \_dst_start, \_dst_start, 4   /* 目标地址+4 */
-    bltu    \_dst_start, \_dst_end, 1b    /* 判断是否已到达结束地址，未到达则循环到上前一个符号1 */
-2:
+    nop
+    addi    t1, t1, -1
+    bne     t1, x0, 1b
+    li      t1, 0xff      
+    addi    t2, t2, -1
+    bne     t2, x0, 1b
     .endm
 
-
-    .section .data
-    .globl  _pen
-    .type   _pen,%object
-_pen:
-    .word   1
+    .macro load_data,_src_start,_dst_start,_dst_end
+    bgeu    \_dst_start, \_dst_end, 2f
+1:
+    lw      t0, (\_src_start)
+    sw      t0, (\_dst_start)
+    addi    \_src_start, \_src_start, 4
+    addi    \_dst_start, \_dst_start, 4
+    bltu    \_dst_start, \_dst_end, 1b
+2:
+    .endm
 
     .section .text
     .globl _start
     .type _start,@function
 
 _start:
-    csrr    a0, mhartid                   /* 获取当前HART的ID */
-    beq     a0, zero, _no_wait            /* 只有核心0执行加载 */
+    csrr    a0, mhartid
+    beq     a0, zero, _no_wait
+
+/* Hart 1-7 从核等待逻辑 */
+_loop: 
+    /* 加读屏障，防止读到缓存旧值 */
+    fence   r, r
     
-_loop:
-    loop    0x1000                        /* 其他核心忙等待循环 */
-    la      t0, _pen
-    lw      t0, 0(t0)
-    beq     t0, zero, _run                /* 等待_pen标志被清除 */
+    /* 直接读绝对地址 0x8000 */
+    li      t0, LOCK_ADDR //将立即数(锁地址)加载到寄存器t0
+    lwu     t0, 0(t0)     //从t0+0源地址处加载无符号数到寄存器t0
+                          //一定要按照无符号读:lwu，寄存器高32位清零，把值加载到低32位
+    
+    /* 比较魔法数，相等才跳 */
+    li      t1, MAGIC_GO_VAL
+    beq     t0, t1, _run_slave //如果t0 equal t1,跳转到_run_slave标签处
+    
+    loop    0x10
     j       _loop
 
-_no_wait:
-    la      t0, _pen
-    la      t1, 1
-    sw      t1, 0(t0)                     /* 设置_pen=1，表示加载中 */
-    
-    /* 加载OpenSBI固件 opensbi_fw.bin */
-    /* [0x20200000:0x20400000] --> [0xBFF80000:0xC0000000] */
-    li      a0, 0x202
-    slli    a0, a0, 20                    /* 源地址: 0x20200000 */
-    li      a1, 0xbff
-    slli    a1, a1, 20                    /* 目标地址: 0xBFF00000 */
-    li      a2, 0x800
-    slli    a2, a2, 8                     /* 偏移: 0x80000 */
-    add     a1, a1, a2                    /* 目标起始地址: 0xBFF80000 */
-    add     a2, a1, a2                    /* 目标结束地址: 0xC0000000 */
-    load_data a0, a1, a2                  /* 拷贝0x20200000到0xBFF80000 */
-    
-    /* 加载OpenSBI设备树 qemu_sbi.dtb */
-    /* [0x20080000:0x20100000] --> [0xBFF00000:0xBFF80000] */
-    li      a0, 0x2008
-    slli    a0, a0, 16                    /* 源地址: 0x20080000 */
-    li      a1, 0xbff
-    slli    a1, a1, 20                    /* 目标地址: 0xBFF00000 */
-    li      a2, 0x800
-    slli    a2, a2, 4                     /* 大小: 0x8000 */
-    add     a2, a1, a2                    /* 结束地址: 0xBFF08000 */
-    load_data a0, a1, a2                  /* 加载OpenSBI设备树 */
-    
-    /* 加载安全域固件 trusted_fw.bin */
-    /* [0x20400000:0x20800000] --> [0xBF800000:0xBFC00000] */
-    li      a0, 0x204
-    slli    a0, a0, 20                    /* 源地址: 0x20400000 */
-    li      a1, 0xbf8
-    slli    a1, a1, 20                    /* 目标地址: 0xBF800000 */
-    li      a2, 0xbfc
-    slli    a2, a2, 20                    /* 结束地址: 0xBFC00000 */
-    load_data a0, a1, a2                  /* 加载可信固件 */
-    
-    /* 加载U-Boot设备树 u-boot.dtb */
-    /* [0x20100000:0x20180000] --> [0xB0000000:0xB0080000] */
-    li      a0, 0x201
-    slli    a0, a0, 20                    /* 源地址: 0x20100000 */
-    li      a1, 0xb00
-    slli    a1, a1, 20                    /* 目标地址: 0xB0000000 */
-    li      a2, 0x800
-    slli    a2, a2, 8                     /* 大小: 0x80000 */
-    add     a2, a1, a2                    /* 结束地址: 0xB0080000 */
-    load_data a0, a1, a2                  /* 加载U-Boot设备树 */
-    
-    /* 加载U-Boot固件 u-boot.bin */
-    /* [0x20800000:0x20C00000] --> [0xB0200000:0xB0600000] */
-    li      a0, 0x208
-    slli    a0, a0, 20                    /* 源地址: 0x20800000 */
-    li      a1, 0xb02
-    slli    a1, a1, 20                    /* 目标地址: 0xB0200000 */
-    li      a2, 0xb06
-    slli    a2, a2, 20                    /* 结束地址: 0xB0600000 */
-    load_data a0, a1, a2                  /* 加载U-Boot固件 */
+/* Hart 0 启动逻辑 */
+_no_wait: 
+    /* 先清零锁，防止意外撞上魔数 */
+    li      t0, LOCK_ADDR
+    sw      zero, 0(t0)
 
-_run:
-    csrr    a0, mhartid                   /* 再次获取核心ID */
+    /* 加上写屏障，确保内存清零生效 */
+    fence   w, w  
+    
+    /* 加载OpenSBI固件到内存; 原地址:0x20200000-->目标地址0xBFF80000 */
+    li      a0, 0x202  //加载立即数0x202到寄存器a0
+    slli    a0, a0, 20 //将寄存器a0左移20位，a0 = 0x20200000
+    li      a1, 0xbff  //加载立即数0xbff到寄存器a1
+    slli    a1, a1, 20 //将寄存器a1左移20位，a1 = 0xbff00000
+    li      a2, 0x800  //加载立即数0x800到寄存器a2
+    slli    a2, a2, 8  //将寄存器a2左移8位，a2 = 0x80000
+    add     a1, a1, a2 //将寄存器a1和a2相加，a1 = 0xbff00000+0x80000=0xbff80000 ,目标地址起始地址
+    add     a2, a1, a2 //将寄存器a1和a2相加，a2 = 0xbff80000 + 0x80000=0xc00000，目标地址结束地址
+    load_data a0, a1, a2 //调用load_data宏，将数据从源地址a0复制到目标地址a1，直到目标地址达到a2
+    
+    /* 加载OpenSBI设备树到内存; 原地址:0x20080000-->目标地址0xBFF00000 */
+    li      a0, 0x2008 //加载立即数0x2008到寄存器a0
+    slli    a0, a0, 16 //将寄存器a0左移16位，a0 = 0x20080000
+    li      a1, 0xbff  //加载立即数0xbff到寄存器a1
+    slli    a1, a1, 20 //将寄存器a1左移20位，a1 = 0xbff00000
+    li      a2, 0x800  //加载立即数0x800到寄存器a2
+    slli    a2, a2, 4  //将寄存器a2左移4位，a2 = 0x8000
+    add     a2, a1, a2 //将寄存器a1和a2相加，a2 = 0xbff00000+0x8000=0xbff08000，目标地址结束地址
+    load_data a0, a1, a2 //调用load_data宏，将数据从源地址a0复制到目标地址a1，直到目标地址达到a2
+    
+    /* 加载安全域固件；原地址:0x20400000-->目标地址0xBF800000 */
+    li      a0, 0x204  //加载立即数0x204到寄存器a0
+    slli    a0, a0, 20 //将寄存器a0左移20位，a0 = 0x20400000 原地址
+    li      a1, 0xbf8  //加载立即数0xbf8到寄存器a1
+    slli    a1, a1, 20 //将寄存器a1左移20位，a1 = 0xbf800000 目标地址起始地址
+    li      a2, 0xbfc  //加载立即数0xbfc到寄存器a2
+    slli    a2, a2, 20 //将寄存器a2左移20位，a2 = 0xbfc00000 目标地址结束地址
+    load_data a0, a1, a2
+    
+    /* 加载U-Boot设备树；原地址:0x20100000-->目标地址0xB0000000 */
+    li      a0, 0x201  //加载立即数0x201到寄存器a0
+    slli    a0, a0, 20 //将寄存器a0左移20位，a0 = 0x20100000
+    li      a1, 0xb00  //加载立即数0xb00到寄存器a1
+    slli    a1, a1, 20 //将寄存器a1左移20位，a1 = 0xb0000000 目标地址起始地址
+    li      a2, 0x800  //加载立即数0x800到寄存器a2
+    slli    a2, a2, 8  //将寄存器a2左移8位，a2 = 0x80000
+    add     a2, a1, a2 //将寄存器a1和a2相加，a2 = 0xb0000000 + 0x80000=0xb0080000 目标地址结束地址
+    load_data a0, a1, a2 //调用load_data宏，将数据从源地址a0复制到目标地址a1，直到目标地址达到a2
+    
+    /* 加载U-Boot固件；原地址:0x20800000-->目标地址0xB0200000 */
+    li      a0, 0x208  //加载立即数0x208到寄存器a0
+    slli    a0, a0, 20 //将寄存器a0左移20位，a0 = 0x20800000
+    li      a1, 0xb02  //加载立即数0xb02到寄存器a1
+    slli    a1, a1, 20 //将寄存器a1左移20位，a1 = 0xb0200000 目标地址起始地址
+    li      a2, 0xb06  //加载立即数0xb06到寄存器a2
+    slli    a2, a2, 20 //将寄存器a2左移20位，a2 = 0xb0600000 目标地址结束地址
+    load_data a0, a1, a2 //调用load_data宏，将数据从源地址a0复制到目标地址a1，直到目标地址达到a2
+    
+    /* 写屏障，保证数据搬完才能开锁 */
+    fence   w, w
+    
+    /* 写入魔法数 0x88888888 */
+    li      t0, LOCK_ADDR
+    li      t1, MAGIC_GO_VAL
+    sw      t1, 0(t0)
+    
+    /* Hart 0 不需要等，直接去计算地址 */
+    j       _calc_addr
+
+_run_slave:
+    /* 从核跳到这里，不需要再做任何事，直接去_calc_addr */
+
+_calc_addr:
+    /* 计算 OpenSBI 入口地址 */
     li      a1, 0xbff
-    slli    a1, a1, 20                    /* 基地址: 0xBFF00000 */
+    slli    a1, a1, 20
     li      t0, 0x800
-    slli    t0, t0, 8                     /* 偏移: 0x80000 */
-    add     t0, a1, t0                    /* 跳转地址 = 0xBFF80000 即opensbi.bin的地址 */
-    la      t1, _pen
-    sw      zero, 0(t1)                   /* 清除_pen标志，释放所有核心 */
-    jr      t0                            /* 所有核心跳转到OpenSBI */
+    slli    t0, t0, 8
+    add     t0, a1, t0  /* 0xBFF80000 */
+    
+    /* Hart 0 这里的 loop 其实可以去掉了，因为用了魔法数锁 */
+    /* 但你想保留也可以，改小一点 */
+    /* loop 0x10 */ 
+    
+    jr      t0
