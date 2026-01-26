@@ -121,18 +121,21 @@ _no_wait:
     j       _calc_addr
 
 _run_slave:
-    /* 从核跳到这里，不需要再做任何事，直接去_calc_addr */
-
+    /* 从核跳到这里，不需要再做任何事(等一会再跳转)，直接去_calc_addr */
+    loop    0x1000    
+    
 _calc_addr:
+    csrr    a0, mhartid       /* a0= Hart ID */
     /* 计算 OpenSBI 入口地址 */
     li      a1, 0xbff
     slli    a1, a1, 20
     li      t0, 0x800
     slli    t0, t0, 8
-    add     t0, a1, t0  /* 0xBFF80000 */
+    add     t0, a1, t0  /* t0=0xBFF80000 opensbi入口地址 */
     
-    /* Hart 0 这里的 loop 其实可以去掉了，因为用了魔法数锁 */
-    /* 但你想保留也可以，改小一点 */
-    /* loop 0x10 */ 
-    
+    li      a1, 0xbff
+    slli    a1, a1, 20    /* a1 = 0xBFF00000 (OpenSBI DTB 地址) */
+
+
+    /* 跳转 ！*/
     jr      t0

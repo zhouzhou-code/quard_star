@@ -36,9 +36,10 @@ echo "------------------------- 编译opensbi --------------------------------"
 if [ ! -d "$SHELL_FOLDER/output/opensbi" ]; then  
 mkdir $SHELL_FOLDER/output/opensbi
 fi  
-cd $SHELL_FOLDER/opensbi-1.2
-# make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star 
-make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star FW_JUMP_ADDR=0xB0200000 FW_JUMP_FDT_ADDR=0xB0000000
+cd $SHELL_FOLDER/opensbi-1.2  
+make distclean #必须要重新编译，否则改的链接地址不会生效
+make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star FW_TEXT_START=0xBFF80000 FW_JUMP=y FW_JUMP_ADDR=0xB0200000
+# make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star
 cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/fw_jump.bin $SHELL_FOLDER/output/opensbi/fw_jump.bin
 cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/fw_jump.elf $SHELL_FOLDER/output/opensbi/fw_jump.elf
 $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/opensbi/fw_jump.elf > $SHELL_FOLDER/output/opensbi/fw_jump.lst
@@ -68,9 +69,9 @@ fi
 cd $SHELL_FOLDER/u-boot-2026.01
 make CROSS_COMPILE=$CROSS_PREFIX- qemu-quard-star_defconfig
 make CROSS_COMPILE=$CROSS_PREFIX- -j16 
-#cp $SHELL_FOLDER/u-boot-2026.01/u-boot $SHELL_FOLDER/output/uboot/u-boot.elf
+cp $SHELL_FOLDER/u-boot-2026.01/u-boot $SHELL_FOLDER/output/uboot/u-boot.elf
 cp $SHELL_FOLDER/u-boot-2026.01/u-boot.map $SHELL_FOLDER/output/uboot/u-boot.map
-cp $SHELL_FOLDER/u-boot-2026.01/u-boot.bin $SHELL_FOLDER/output/uboot/u-boot.bin
+cp $SHELL_FOLDER/u-boot-2026.01/u-boot-nodtb.bin $SHELL_FOLDER/output/uboot/u-boot.bin
 $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/uboot/u-boot.elf > $SHELL_FOLDER/output/uboot/u-boot.lst
 
 

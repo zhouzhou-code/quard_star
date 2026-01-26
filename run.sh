@@ -19,4 +19,5 @@ $SHELL_FOLDER/output/qemu/bin/qemu-system-riscv64 \
 
 #-monitor stdio
 
+# 终端使用telnet localhost 4444监听串口
 
