@@ -23,6 +23,8 @@ config TEXT_BASE
 config BOARD_SPECIFIC_OPTIONS # dummy
 	def_bool y
 	select GENERIC_RISCV
+	select OF_CONTROL          
+    select OF_HAS_PRIOR_STAGE  
 	imply AHCI
 	imply SMP
 	imply BOARD_LATE_INIT
@@ -39,5 +41,6 @@ config BOARD_SPECIFIC_OPTIONS # dummy
 	imply SYSRESET
 	imply SYSRESET_CMD_POWEROFF
 	imply SYSRESET_SYSCON
+
 
 endif

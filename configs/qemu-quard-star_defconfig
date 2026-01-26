@@ -5,15 +5,20 @@ CONFIG_RISCV=y
 # 这决定了 U-Boot 运行时可以动态分配的最大内存量
 CONFIG_SYS_MALLOC_LEN=0x800000
 
+#ai让补的早期内存分配器大小为16KB（0x4000 字节）
+# 这决定了 U-Boot 早期初始化阶段可以动态分配的最大
+CONFIG_SYS_MALLOC_F_LEN=0x4000
+
+
 # 启用自定义的初始栈指针地址设置
 CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
-# 设置自定义的初始栈指针地址为0xB0900000,系统启动时，栈指针将从这个地址开始向下增长
-CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0xB0900000
+# 设置自定义的初始栈指针地址为0xB1200000,系统启动时，栈指针将从这个地址开始向下增长
+CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0xB1200000
 
 # 设置环境变量存储区大小为 128KB（0x20000 字节）
 CONFIG_ENV_SIZE=0x20000
 
-# 设置默认设备树文件名为 "qemu_uboot.dtb"， U-Boot 会尝试加载这个设备树文件来描述硬件
+# 设置默认设备树文件名为 "qemu_uboot.dtb"， U-Boot 会尝试加载这个设备树文件来描述硬件,一定要，不然编译报错
 #CONFIG_DEFAULT_DEVICE_TREE="qemu-virt64"
 
 #特有的，优先使用早期阶段提供的设备树；优先使用前一级引导程序/固件提供的设备树（FDT）”。
