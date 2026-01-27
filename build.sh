@@ -67,11 +67,17 @@ if [ ! -d "$SHELL_FOLDER/output/uboot" ]; then
 mkdir $SHELL_FOLDER/output/uboot
 fi  
 cd $SHELL_FOLDER/u-boot-2026.01
+
+#删除旧的u-boot文件，防止编译时认为没有变化而不重新编译
+rm $SHELL_FOLDER/u-boot-2026.01/u-boot
+rm $SHELL_FOLDER/u-boot-2026.01/u-boot.map
+rm $SHELL_FOLDER/u-boot-2026.01/u-boot.bin
+
 make CROSS_COMPILE=$CROSS_PREFIX- qemu-quard-star_defconfig
 make CROSS_COMPILE=$CROSS_PREFIX- -j16 
 cp $SHELL_FOLDER/u-boot-2026.01/u-boot $SHELL_FOLDER/output/uboot/u-boot.elf
 cp $SHELL_FOLDER/u-boot-2026.01/u-boot.map $SHELL_FOLDER/output/uboot/u-boot.map
-cp $SHELL_FOLDER/u-boot-2026.01/u-boot-nodtb.bin $SHELL_FOLDER/output/uboot/u-boot.bin
+cp $SHELL_FOLDER/u-boot-2026.01/u-boot.bin $SHELL_FOLDER/output/uboot/u-boot.bin
 $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/uboot/u-boot.elf > $SHELL_FOLDER/output/uboot/u-boot.lst
 
 
