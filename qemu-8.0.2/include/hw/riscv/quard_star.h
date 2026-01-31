@@ -21,7 +21,8 @@ struct QuardStarState {
     /*< public >*/
     RISCVHartArrayState soc[QUARD_STAR_SOCKETS_MAX];
     PFlashCFI01 *flash;
-    DeviceState *plic[QUARD_STAR_SOCKETS_MAX];
+    DeviceState *plic[QUARD_STAR_SOCKETS_MAX]; //8个plic?连到8个hart上
+    FWCfgState *fw_cfg;
 };
 
 enum {
@@ -34,12 +35,14 @@ enum {
     QUARD_STAR_UART2,
     QUARD_STAR_RTC,
     QUARD_STAR_VIRTIO0,
+    QUARD_STAR_FW_CFG,
     QUARD_STAR_FLASH,
     QUARD_STAR_DRAM,
 };
 
 enum {
-    QUARD_STAR_VIRTIO0_IRQ = 1,
+    QUARD_STAR_VIRTIO_IRQ_BASE = 1, //定义第一个Virtio设备的中断号为1，其他Virtio设备的中断号依次递增(1 to 8)
+    QUARD_STAR_VIRTIO_COUNT = 8,//定义了Virtio设备的数量为8
     QUARD_STAR_UART0_IRQ = 10,  //定义了串口中断号为10
     QUARD_STAR_UART1_IRQ = 11,
     QUARD_STAR_UART2_IRQ = 12,

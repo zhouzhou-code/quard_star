@@ -103,6 +103,13 @@ dd of=fw.bin bs=1k conv=notrunc seek=4k if=$SHELL_FOLDER/output/trusted_domain/t
 #写入uboot 偏移量8k*1k=0x800000
 dd of=fw.bin bs=1k conv=notrunc seek=8k if=$SHELL_FOLDER/output/uboot/u-boot.bin
 
+# 合成文件系统映像
+if [ ! -d "$SHELL_FOLDER/output/rootfs" ]; then  
+mkdir $SHELL_FOLDER/output/rootfs
+fi  
+cd $SHELL_FOLDER/output/rootfs
+rm -rf rootfs.img
+dd of=rootfs.img bs=1k count=32k if=/dev/zero
 
 #写入固件的偏移地址改成如下:
 # load opensbi_fw.bin 

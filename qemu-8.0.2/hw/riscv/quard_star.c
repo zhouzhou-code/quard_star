@@ -50,7 +50,9 @@ static const MemMapEntry quard_star_memmap[] = {
     [QUARD_STAR_UART2]       = { 0x10002000,        0x1000 },
     [QUARD_STAR_RTC]         = { 0x10003000,        0x1000 },
 
-    [QUARD_STAR_VIRTIO0]     = { 0x10100000,        0x1000 },
+    /* virtio,设备占用的地址空间为 0x1000=4k，这里从virtio0开始连续划分8个virtio的地址 */
+    [QUARD_STAR_VIRTIO0]     = { 0x10100000,     0x1000 },
+    [QUARD_STAR_FW_CFG] = { 0x10108000,          0x18 },
     [QUARD_STAR_FLASH]       = { 0x20000000,     0x2000000 },   
     [QUARD_STAR_DRAM]        = { 0x80000000,    0x40000000 },   
 };
@@ -251,11 +253,40 @@ static void quard_star_rtc_create(MachineState *machine)
 }
 
 /* 创建virtio */
-static void quard_star_virtio_mmio_create(MachineState *machine){
+// static void quard_star_virtio_mmio_create(MachineState *machine){
+//     QuardStarState *s = RISCV_VIRT_MACHINE(machine);
+//     sysbus_create_simple("virtio-mmio",
+//         quard_star_memmap[QUARD_STAR_VIRTIO0].base,
+//         qdev_get_gpio_in(DEVICE(s->plic[0]), QUARD_STAR_VIRTIO0_IRQ));
+// }
+
+/* 创建virtio*8 */
+static void quard_star_virtio_mmio_create(MachineState *machine)
+{
     QuardStarState *s = RISCV_VIRT_MACHINE(machine);
-    sysbus_create_simple("virtio-mmio",
-        quard_star_memmap[QUARD_STAR_VIRTIO0].base,
-        qdev_get_gpio_in(DEVICE(s->plic[0]), QUARD_STAR_VIRTIO0_IRQ));
+    int i;
+
+    /* 循环创建8个 Virtio 设备 */
+    for (i = 0; i < QUARD_STAR_VIRTIO_COUNT; i++) {
+
+    sysbus_create_simple("virtio-mmio", 
+                quard_star_memmap[QUARD_STAR_VIRTIO0].base + i * quard_star_memmap[QUARD_STAR_VIRTIO0].size, //地址=基地址+i*4KB
+                qdev_get_gpio_in(
+                        DEVICE(s->plic[0]), //virtio设备 全部连到PLIC[0]
+                        QUARD_STAR_VIRTIO_IRQ_BASE + i //中断号=基中断号+i
+                    )
+            );
+    }
+
+    /* fw_cfg_init_mem_wide创建fw_cfg设备 */
+    s->fw_cfg = fw_cfg_init_mem_wide(quard_star_memmap[QUARD_STAR_FW_CFG].base + 8, 
+                                     quard_star_memmap[QUARD_STAR_FW_CFG].base,  
+                                     8, 
+                                     quard_star_memmap[QUARD_STAR_FW_CFG].base + 16,
+                                     &address_space_memory);
+    // 使用类似fw_cfg_add_*接口可以内置一些参数到fw_cfg，这里我们吧core的数量内置到fw_cfg中。                                
+    fw_cfg_add_i16(s->fw_cfg, FW_CFG_NB_CPUS, (uint16_t)machine->smp.cpus);
+    rom_set_fw(s->fw_cfg);
 }
 
 /* quard-star 初始化各种硬件 */
