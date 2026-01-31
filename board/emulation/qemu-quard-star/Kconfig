@@ -42,5 +42,16 @@ config BOARD_SPECIFIC_OPTIONS # dummy
 	imply SYSRESET_CMD_POWEROFF
 	imply SYSRESET_SYSCON
 
+	imply QFW
+    imply QFW_MMIO
+    imply CMD_QFW
+
+	imply VIRTIO
+    imply VIRTIO_MMIO
+    imply CMD_VIRTIO
+	imply VIRTIO_PCI
+	imply VIRTIO_NET
+	imply VIRTIO_BLK
+
 
 endif
