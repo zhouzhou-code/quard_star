@@ -80,6 +80,18 @@ cp $SHELL_FOLDER/u-boot-2026.01/u-boot.map $SHELL_FOLDER/output/uboot/u-boot.map
 cp $SHELL_FOLDER/u-boot-2026.01/u-boot.bin $SHELL_FOLDER/output/uboot/u-boot.bin
 $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/uboot/u-boot.elf > $SHELL_FOLDER/output/uboot/u-boot.lst
 
+#编译linux kernel
+echo "------------------------- 编译linux kernel --------------------------------"
+if [ ! -d "$SHELL_FOLDER/output/linux_kernel" ]; then  
+mkdir $SHELL_FOLDER/output/linux_kernel
+fi
+cd $SHELL_FOLDER/linux-5.10
+make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- defconfig
+make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- -j24
+cp $SHELL_FOLDER/linux-5.10/arch/riscv/boot/Image $SHELL_FOLDER/output/linux_kernel/Image
+
+
+
 
 # 合成firmware固件
 if [ ! -d "$SHELL_FOLDER/output/fw" ]; then  
@@ -87,7 +99,7 @@ mkdir $SHELL_FOLDER/output/fwc
 fi  
 cd $SHELL_FOLDER/output/fw
 rm -rf fw.bin
-#填充32K的0
+#先填充32K的0
 dd of=fw.bin bs=1k count=32k if=/dev/zero
 
 #写入lowlevelboot程序 偏移量0k
@@ -111,18 +123,32 @@ cd $SHELL_FOLDER/output/rootfs
 rm -rf rootfs.img
 dd of=rootfs.img bs=1k count=32k if=/dev/zero
 
-#写入固件的偏移地址改成如下:
-# load opensbi_fw.bin 
-# [0x00200000
+# 合成文件系统映像
+if [ ! -d "$SHELL_FOLDER/output/rootfs" ]; then  
+mkdir $SHELL_FOLDER/output/rootfs
+fi
 
-# load qemu_sbi.dtb
-# [0x00080000
+if [ ! -d "$SHELL_FOLDER/output/rootfs/rootfs" ]; then  
+mkdir $SHELL_FOLDER/output/rootfs/rootfs
+fi
 
-# load trusted_fw.bin
-# [0x00400000
+if [ ! -d "$SHELL_FOLDER/output/rootfs/bootfs" ]; then  
+mkdir $SHELL_FOLDER/output/rootfs/bootfs
+fi
 
-# load qemu_uboot.dtb
-# [0x00100000
+cd $SHELL_FOLDER/output/rootfs
 
-# load u-boot.bin
-# [0x00800000
+# 创建1G的空白镜像文件,并调用子脚本，传入空白镜像文件和分区表文件进行分区格式化
+if [ ! -f "$SHELL_FOLDER/output/rootfs/rootfs.img" ]; then  
+dd if=/dev/zero of=rootfs.img bs=1M count=1024
+pkexec $SHELL_FOLDER/build_rootfs/generate_rootfs.sh $SHELL_FOLDER/output/rootfs/rootfs.img $SHELL_FOLDER/build_rootfs/sfdisk
+fi
+
+
+# 复制内核镜像和设备树到bootfs目录
+cp $SHELL_FOLDER/output/linux_kernel/Image $SHELL_FOLDER/output/rootfs/bootfs/Image
+cp $SHELL_FOLDER/output/uboot/quard_star_uboot.dtb $SHELL_FOLDER/output/rootfs/bootfs/quard_star.dtb
+# 生成boot.scr启动脚本告诉uboot去哪里引导系统
+$SHELL_FOLDER/u-boot-2026.01/tools/mkimage -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d $SHELL_FOLDER/dts/quard_star_uboot.cmd $SHELL_FOLDER/output/rootfs/bootfs/boot.scr
+#调用子脚本，将准备好的bootfs和rootfs内容写入到镜像文件分区中
+pkexec $SHELL_FOLDER/build_rootfs/build.sh $SHELL_FOLDER/output/rootfs
