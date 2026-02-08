@@ -5,32 +5,26 @@ CONFIG_RISCV=y
 # 这决定了 U-Boot 运行时可以动态分配的最大内存量
 CONFIG_SYS_MALLOC_LEN=0x800000
 
-#ai让补的早期内存分配器大小为16KB（0x4000 字节）
+# 早期内存malloc分配器大小为16KB（0x4000 字节）
 # 这决定了 U-Boot 早期初始化阶段可以动态分配的最大
 CONFIG_SYS_MALLOC_F_LEN=0x4000
 
-
-# 启用自定义的初始栈指针地址设置
+# 启用自定义的初始栈指针地址设置(早期临时栈,重定位之前使用)
 CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
-# 设置自定义的初始栈指针地址为0xB1200000,系统启动时，栈指针将从这个地址开始向下增长
-CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0xB1200000
+CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0xB1000000
+CONFIG_STACK_SIZE_SHIFT=14
+
+
+# 重定位之后的栈大小设置为1MB
+CONFIG_STACK_SIZE=0x100000
 
 # 设置环境变量存储区大小为 128KB（0x20000 字节）
 CONFIG_ENV_SIZE=0x20000
-
-# 设置默认设备树文件名为 "qemu_uboot.dtb"， U-Boot 会尝试加载这个设备树文件来描述硬件,一定要，不然编译报错
-#CONFIG_DEFAULT_DEVICE_TREE="qemu-virt64"
-
-#特有的，优先使用早期阶段提供的设备树；优先使用前一级引导程序/固件提供的设备树（FDT）”。
-#启用后，U‑Boot 在早期初始化会采用固件(例如 OpenSBI)通过 fdtcontroladdr 传入的 FDT，
-#而不是强制从存储或内置默认DTB重新加载或替换它
-CONFIG_OF_PRIOR_STAGE=y 
-
-
+ 
 # 设置默认的加载地址为 0x80200000; 当加载内核、设备树等文件时，如果没有指定地址，会使用这个地址
 CONFIG_SYS_LOAD_ADDR=0x80200000
 
-# 启用 QEMU 虚拟平台的目标板支持
+# 启用 QEMU Quard Star 目标支持
 CONFIG_TARGET_QEMU_QUARD_STAR=y
 
 # 启用 RISC-V 64 位基础指令集（RV64I）
@@ -41,8 +35,7 @@ CONFIG_RISCV_SMODE=y
 # FIT 是一种灵活的镜像格式，可以在一个镜像中包含内核、设备树、ramdisk等多个组件
 CONFIG_FIT=y
 
-# 启用发行版默认配置
-# 这会启用一些常见的发行版需要的功能，如网络启动、ext4 支持等
+# DISTRO BOOT支持
 CONFIG_DISTRO_DEFAULTS=y
 
 # 启用预启动命令
@@ -87,7 +80,7 @@ CONFIG_DM_MTD=y
 # 设置Flash编程时不显示进度；值为0表示不显示进度，可以加快编程速度
 CONFIG_FLASH_SHOW_PROGRESS=0
 
-# 设置系统最大 Flash 存储体数为2；这定义了系统可以有多少个独立的 Flash 芯片/分区
+# 设置系统最大 Flash 存储体数为1；这定义了系统可以有多少个独立的 Flash 芯片/分区
 CONFIG_SYS_MAX_FLASH_BANKS=1
 
 # 启用单元测试支持

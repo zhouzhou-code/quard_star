@@ -25,5 +25,15 @@ int board_late_init(void)
 
 phys_size_t get_effective_memsize(void)
 {
-	return SZ_32M;
+	// return SZ_32M;
+
+	// 强制告诉 U-Boot：内存最高只能用到 0xBF800000
+    // 即使物理内存有 1GB，我们也只认到这里
+    return SZ_1G - SZ_8M;
 }
+//或者:
+// phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
+// {
+// 	// 强制告诉 U-Boot：内存最高只能用到 0xBF800000
+// 	return gd->base+SZ_1G - SZ_8M;
+// }

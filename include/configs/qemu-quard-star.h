@@ -37,16 +37,18 @@
 /* 
  * 启动目标设备列表 (Distro Boot)。
  * 定义了 U-Boot 扫描启动介质的优先级顺序：
- * 1. QEMU 虚拟设备
+ * 1. QEMU 虚拟设备(fw_cfg)
+ * 2. virtio 块设备 (virtio_blk)
  * config_distro_bootcmd.h 会利用这个列表生成 bootcmd 脚本。
  */
 #define BOOT_TARGET_DEVICES(func) \
     func(QEMU, qemu, na) \
+    func(VIRTIO, virtio, 0)
 
 /* 包含通用的发行版启动命令生成逻辑 */
 #include <config_distro_bootcmd.h>
 /* 
- * QEMU 设备的启动命令定义。
+ * QEMU 设备的启动命令定义，是针对 BOOT_TARGET_DEVICES 中的 QEMU 设备的具体实现
  * 这里定义了 bootcmd_qemu，用于从 QEMU 虚拟设备加载内核和设备树。
  */
 #define BOOTENV_DEV_QEMU(devtypeu, devtypel, instance) \

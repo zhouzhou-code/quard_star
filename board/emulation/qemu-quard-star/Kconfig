@@ -27,7 +27,7 @@ config BOARD_SPECIFIC_OPTIONS # dummy
     select OF_HAS_PRIOR_STAGE  
 	imply AHCI
 	imply SMP
-	imply BOARD_LATE_INIT
+	imply BOARD_LATE_INIT 
 	imply CMD_POWEROFF
 	imply CMD_EXT2
 	imply CMD_EXT4
