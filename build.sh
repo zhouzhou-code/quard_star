@@ -91,6 +91,21 @@ make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- -j24
 cp $SHELL_FOLDER/linux-5.10/arch/riscv/boot/Image $SHELL_FOLDER/output/linux_kernel/Image
 
 
+#编译busybox
+echo "------------------------- 编译busybox --------------------------------"
+if [ ! -d "$SHELL_FOLDER/output/busybox" ]; then  
+mkdir $SHELL_FOLDER/output/busybox
+fi
+cd $SHELL_FOLDER/busybox-1.36.1
+make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- quard_star_defconfig
+make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- -j24
+make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- install
+make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- CONFIG_PREFIX=$SHELL_FOLDER/output/busybox install
+#手动添加挂载目录，因为busybox的安装脚本只会安装busybox的二进制文件和链接，并不会创建挂载点目录
+mkdir $SHELL_FOLDER/output/busybox/proc
+mkdir $SHELL_FOLDER/output/busybox/sys
+mkdir $SHELL_FOLDER/output/busybox/dev
+mkdir $SHELL_FOLDER/output/busybox/tmp
 
 
 # 合成firmware固件
@@ -138,14 +153,17 @@ sudo $SHELL_FOLDER/build_rootfs/generate_rootfs.sh $SHELL_FOLDER/output/rootfs/r
 fi
 
 
-# 复制内核镜像和设备树到bootfs目录
+# 复制内核镜像和设备树到bootfs目录,复制busybox编译好的文件到rootfs目录
 cp $SHELL_FOLDER/output/linux_kernel/Image $SHELL_FOLDER/output/rootfs/bootfs/Image
 cp $SHELL_FOLDER/output/uboot/quard_star_uboot.dtb $SHELL_FOLDER/output/rootfs/bootfs/quard_star.dtb
+cp -r $SHELL_FOLDER/output/busybox/* $SHELL_FOLDER/output/rootfs/rootfs/
+cp -r $SHELL_FOLDER/busybox_root_script/*  $SHELL_FOLDER/output/rootfs/rootfs/
+
 # 生成boot.scr启动脚本告诉uboot去哪里引导系统
 $SHELL_FOLDER/u-boot-2026.01/tools/mkimage -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d $SHELL_FOLDER/dts/quard_star_uboot.cmd $SHELL_FOLDER/output/rootfs/bootfs/boot.scr
 #调用子脚本，将准备好的bootfs和rootfs内容写入到镜像文件分区中
 sudo $SHELL_FOLDER/build_rootfs/build.sh $SHELL_FOLDER/output/rootfs
-
+ 
 #  dd if=/dev/zero of=./output/rootfs/rootfs.img bs=1M count=1024
 # sudo ./build_rootfs/generate_rootfs.sh ./output/rootfs/rootfs.img ./build_rootfs/sfdisk
 # sudo ./build_rootfs/build.sh ./output/rootfs
