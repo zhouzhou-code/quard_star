@@ -20,5 +20,10 @@ cp -r $1/rootfs/* $1/target/rootfs/  # 拷贝 BusyBox 根文件系统内容
 
 # 5.强制同步与撤销：sync 确保数据从缓存写进磁盘文件，然后卸载
 sync
-umount $1/target/bootfs $1/target/rootfs
+
+echo "please wait 5s"
+sleep 5
+
+umount $1/target/bootfs 
+umount $1/target/rootfs
 losetup -d /dev/loop70
