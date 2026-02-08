@@ -115,13 +115,6 @@ dd of=fw.bin bs=1k conv=notrunc seek=4k if=$SHELL_FOLDER/output/trusted_domain/t
 #写入uboot 偏移量8k*1k=0x800000
 dd of=fw.bin bs=1k conv=notrunc seek=8k if=$SHELL_FOLDER/output/uboot/u-boot.bin
 
-# 合成文件系统映像
-if [ ! -d "$SHELL_FOLDER/output/rootfs" ]; then  
-mkdir $SHELL_FOLDER/output/rootfs
-fi  
-cd $SHELL_FOLDER/output/rootfs
-rm -rf rootfs.img
-dd of=rootfs.img bs=1k count=32k if=/dev/zero
 
 # 合成文件系统映像
 if [ ! -d "$SHELL_FOLDER/output/rootfs" ]; then  
@@ -141,7 +134,7 @@ cd $SHELL_FOLDER/output/rootfs
 # 创建1G的空白镜像文件,并调用子脚本，传入空白镜像文件和分区表文件进行分区格式化
 if [ ! -f "$SHELL_FOLDER/output/rootfs/rootfs.img" ]; then  
 dd if=/dev/zero of=rootfs.img bs=1M count=1024
-pkexec $SHELL_FOLDER/build_rootfs/generate_rootfs.sh $SHELL_FOLDER/output/rootfs/rootfs.img $SHELL_FOLDER/build_rootfs/sfdisk
+sudo $SHELL_FOLDER/build_rootfs/generate_rootfs.sh $SHELL_FOLDER/output/rootfs/rootfs.img $SHELL_FOLDER/build_rootfs/sfdisk
 fi
 
 
@@ -151,4 +144,8 @@ cp $SHELL_FOLDER/output/uboot/quard_star_uboot.dtb $SHELL_FOLDER/output/rootfs/b
 # 生成boot.scr启动脚本告诉uboot去哪里引导系统
 $SHELL_FOLDER/u-boot-2026.01/tools/mkimage -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d $SHELL_FOLDER/dts/quard_star_uboot.cmd $SHELL_FOLDER/output/rootfs/bootfs/boot.scr
 #调用子脚本，将准备好的bootfs和rootfs内容写入到镜像文件分区中
-pkexec $SHELL_FOLDER/build_rootfs/build.sh $SHELL_FOLDER/output/rootfs
+sudo $SHELL_FOLDER/build_rootfs/build.sh $SHELL_FOLDER/output/rootfs
+
+#  dd if=/dev/zero of=./output/rootfs/rootfs.img bs=1M count=1024
+# sudo ./build_rootfs/generate_rootfs.sh ./output/rootfs/rootfs.img ./build_rootfs/sfdisk
+# sudo ./build_rootfs/build.sh ./output/rootfs
