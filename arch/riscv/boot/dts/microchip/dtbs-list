@@ -1,0 +1,8 @@
+arch/riscv/boot/dts/microchip/mpfs-beaglev-fire.dtb
+arch/riscv/boot/dts/microchip/mpfs-disco-kit.dtb
+arch/riscv/boot/dts/microchip/mpfs-icicle-kit.dtb
+arch/riscv/boot/dts/microchip/mpfs-icicle-kit-prod.dtb
+arch/riscv/boot/dts/microchip/mpfs-m100pfsevp.dtb
+arch/riscv/boot/dts/microchip/mpfs-polarberry.dtb
+arch/riscv/boot/dts/microchip/mpfs-sev-kit.dtb
+arch/riscv/boot/dts/microchip/mpfs-tysom-m.dtb

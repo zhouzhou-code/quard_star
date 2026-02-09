@@ -1,0 +1,12 @@
+arch/riscv/boot/dts/starfive/jh7100-beaglev-starlight.dtb
+arch/riscv/boot/dts/starfive/jh7100-starfive-visionfive-v1.dtb
+arch/riscv/boot/dts/starfive/jh7110-deepcomputing-fml13v01.dtb
+arch/riscv/boot/dts/starfive/jh7110-milkv-mars.dtb
+arch/riscv/boot/dts/starfive/jh7110-milkv-marscm-emmc.dtb
+arch/riscv/boot/dts/starfive/jh7110-milkv-marscm-lite.dtb
+arch/riscv/boot/dts/starfive/jh7110-orangepi-rv.dtb
+arch/riscv/boot/dts/starfive/jh7110-pine64-star64.dtb
+arch/riscv/boot/dts/starfive/jh7110-starfive-visionfive-2-lite.dtb
+arch/riscv/boot/dts/starfive/jh7110-starfive-visionfive-2-lite-emmc.dtb
+arch/riscv/boot/dts/starfive/jh7110-starfive-visionfive-2-v1.2a.dtb
+arch/riscv/boot/dts/starfive/jh7110-starfive-visionfive-2-v1.3b.dtb

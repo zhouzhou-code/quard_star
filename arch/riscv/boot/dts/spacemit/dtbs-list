@@ -1,0 +1,5 @@
+arch/riscv/boot/dts/spacemit/k1-bananapi-f3.dtb
+arch/riscv/boot/dts/spacemit/k1-milkv-jupiter.dtb
+arch/riscv/boot/dts/spacemit/k1-musepi-pro.dtb
+arch/riscv/boot/dts/spacemit/k1-orangepi-r2s.dtb
+arch/riscv/boot/dts/spacemit/k1-orangepi-rv2.dtb

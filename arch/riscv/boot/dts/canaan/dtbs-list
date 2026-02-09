@@ -1,0 +1,6 @@
+arch/riscv/boot/dts/canaan/canaan_kd233.dtb
+arch/riscv/boot/dts/canaan/k210_generic.dtb
+arch/riscv/boot/dts/canaan/sipeed_maix_bit.dtb
+arch/riscv/boot/dts/canaan/sipeed_maix_dock.dtb
+arch/riscv/boot/dts/canaan/sipeed_maix_go.dtb
+arch/riscv/boot/dts/canaan/sipeed_maixduino.dtb
