@@ -1,0 +1,86 @@
+<svg width="1000" height="1400" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+<path d="M0,0 L0,6 L9,3 z" fill="#000" />
+</marker>
+</defs>
+<rect x="400.0" y="20" width="200" height="40" fill="#d0ffd0" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="500.0" y="43.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">Trap Handler 入口</text>
+<rect x="360.0" y="90" width="280" height="120" fill="#e0e0ff" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="500.0" y="108.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">保存上下文 (Save Context)</text>
+<text x="500.0" y="126.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sp -= portCONTEXT_SIZE</text>
+<text x="500.0" y="144.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. 保存通用寄存器 x1, x5-x31</text>
+<text x="500.0" y="162.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">3. 保存 sstatus, sepc</text>
+<text x="500.0" y="180.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">4. 保存 FPU (如果启用)</text>
+<text x="500.0" y="198.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">5. [pxCurrentTCB] = sp</text>
+<polygon points="500.0,240 600.0,280.0 500.0,320 400.0,280.0" fill="#ffe0b0" stroke="black" stroke-width="2"/>
+<text x="500.0" y="276.0" font-family="Arial, SimHei, sans-serif" font-size="14" text-anchor="middle">异步中断?</text>
+<text x="500.0" y="292.0" font-family="Arial, SimHei, sans-serif" font-size="14" text-anchor="middle">(scause MSB == 1)</text>
+<rect x="50.0" y="350" width="240" height="80" fill="#ffcccc" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="170.0" y="366.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">处理同步异常 (Sync)</text>
+<text x="170.0" y="384.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sepc += 4</text>
+<text x="170.0" y="402.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">(跳过指令)</text>
+<text x="170.0" y="420.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. 保存更新后的 sepc</text>
+<polygon points="500.0,350 600.0,390.0 500.0,430 400.0,390.0" fill="#ffe0b0" stroke="black" stroke-width="2"/>
+<text x="500.0" y="386.0" font-family="Arial, SimHei, sans-serif" font-size="14" text-anchor="middle">软件中断?</text>
+<text x="500.0" y="402.0" font-family="Arial, SimHei, sans-serif" font-size="14" text-anchor="middle">(IPI)</text>
+<rect x="650.0" y="350" width="280" height="100" fill="#ffffcc" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="790.0" y="376.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">处理 IPI</text>
+<text x="790.0" y="394.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sp = xISRStackTop</text>
+<text x="790.0" y="412.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. vPortClearIpiInterrupt()</text>
+<text x="790.0" y="430.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">3. vTaskSwitchContext()</text>
+<polygon points="500.0,480 600.0,520.0 500.0,560 400.0,520.0" fill="#ffe0b0" stroke="black" stroke-width="2"/>
+<text x="500.0" y="524.0" font-family="Arial, SimHei, sans-serif" font-size="14" text-anchor="middle">定时器中断?</text>
+<rect x="650.0" y="480" width="280" height="120" fill="#ffffcc" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="790.0" y="507.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">处理 Timer</text>
+<text x="790.0" y="525.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sp = xISRStackTop</text>
+<text x="790.0" y="543.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. vPortSetupTimerInterrupt()</text>
+<text x="790.0" y="561.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">3. xTaskIncrementTick()</text>
+<text x="790.0" y="579.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">4. 如需: vTaskSwitchContext()</text>
+<polygon points="500.0,640 600.0,680.0 500.0,720 400.0,680.0" fill="#ffe0b0" stroke="black" stroke-width="2"/>
+<text x="500.0" y="684.0" font-family="Arial, SimHei, sans-serif" font-size="14" text-anchor="middle">外部中断?</text>
+<rect x="650.0" y="640" width="280" height="100" fill="#ffffcc" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="790.0" y="666.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">处理外部中断 (External)</text>
+<text x="790.0" y="684.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sp = xISRStackTop</text>
+<text x="790.0" y="702.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. handle_interrupt()</text>
+<text x="790.0" y="720.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">(Weak, 用户可定义)</text>
+<rect x="360.0" y="780" width="280" height="80" fill="#ffcccc" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="500.0" y="796.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">默认 Trap 处理</text>
+<text x="500.0" y="814.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sp = xISRStackTop</text>
+<text x="500.0" y="832.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. handle_trap(scause...)</text>
+<text x="500.0" y="850.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">(C 处理函数)</text>
+<rect x="360.0" y="920" width="280" height="120" fill="#e0e0ff" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="500.0" y="938.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">恢复上下文 (Restore Context)</text>
+<text x="500.0" y="956.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">1. sp = [pxCurrentTCB]</text>
+<text x="500.0" y="974.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">2. 恢复 sepc, sstatus</text>
+<text x="500.0" y="992.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">3. 恢复 FPU (如果启用)</text>
+<text x="500.0" y="1010.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">4. 恢复 x1, x5-x31</text>
+<text x="500.0" y="1028.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">5. sp += portCONTEXT_SIZE</text>
+<rect x="440.0" y="1080" width="120" height="40" fill="#d0ffd0" stroke="black" stroke-width="2" rx="5" ry="5"/>
+<text x="500.0" y="1094.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">sret</text>
+<text x="500.0" y="1112.0" font-family="Arial, SimHei, sans-serif" font-size="14" font-weight="normal" text-anchor="middle">(返回)</text>
+<line x1="500.0" y1="60" x2="500.0" y2="90" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="210" x2="500.0" y2="240" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="400.0,280.0 170.0,280.0 170.0,350" fill="none" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="285.0" y="275.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">否</text>
+<polyline points="170.0,430 170.0,820.0 360.0,820.0" fill="none" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="320" x2="500.0" y2="350" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="510.0" y="335.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">是</text>
+<line x1="600.0" y1="390.0" x2="650.0" y2="400.0" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="635.0" y="395.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">是</text>
+<polyline points="790.0,450 790.0,890 660.0,890 660.0,980.0 640.0,980.0" fill="none" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="430" x2="500.0" y2="480" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="510.0" y="455.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">否</text>
+<line x1="600.0" y1="520.0" x2="650.0" y2="540.0" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="635.0" y="530.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">是</text>
+<polyline points="790.0,600 790.0,890 660.0,890 660.0,980.0 640.0,980.0" fill="none" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="560" x2="500.0" y2="640" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="510.0" y="600.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">否</text>
+<line x1="600.0" y1="680.0" x2="650.0" y2="690.0" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="635.0" y="685.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">是</text>
+<polyline points="790.0,740 790.0,890 660.0,890 660.0,980.0 640.0,980.0" fill="none" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="720" x2="500.0" y2="780" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="510.0" y="750.0" font-family="Arial, SimHei, sans-serif" font-size="12" fill="blue">否</text>
+<line x1="500.0" y1="860" x2="500.0" y2="920" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="1040" x2="500.0" y2="1080" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+</svg>
