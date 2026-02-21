@@ -82,10 +82,6 @@ const uint64_t * pullNextTime = &ullNextTime;
  */const size_t uxTimerIncrementsForOneTick = ( size_t ) ( ( configCPU_CLOCK_HZ ) / ( configTICK_RATE_HZ ) ); /* Assumes increment won't go over 32-bits. */
 volatile uint64_t * pullMachineTimerCompareRegister = NULL; /* S-Mode 不直接访问寄存器，此变量可能仅用于兼容性或特定实现 */
 
-/* 保存临界区嵌套值 - 启动时故意非零，以确保在调度器启动前不会意外启用中断。 */
-size_t xCriticalNesting = ( size_t ) 0xaaaaaaaa;
-size_t * pxCriticalNesting = &xCriticalNesting;
-
 /* 用于捕获尝试从实现函数返回的任务。 */
 size_t xTaskReturnAddress = ( size_t ) portTASK_RETURN_ADDRESS;
 
@@ -139,7 +135,7 @@ BaseType_t xPortStartScheduler( void )
          * started. */
         configASSERT( ( xISRStackTop & portBYTE_ALIGNMENT_MASK ) == 0 );
 
-        #ifdef configISR_STACK_SIZE_WORDS
+        #ifdef configISR_STACK_SIZE_WORDS //填充特定字符做栈检测
         {
             memset( ( void * ) xISRStack, portISR_STACK_FILL_BYTE, sizeof( xISRStack ) );
         }
@@ -200,13 +196,13 @@ void vPortEndScheduler( void )
 void prvTaskExitError( void )
 {
 	/* A function that implements a task must not exit or attempt to return to
-	its caller as there is nothing to return to. If a task wants to exit it
+	its caller as there is nothing to return to.  If a task wants to exit it
 	should instead call vTaskDelete( NULL ).
 
 	Artificially force an assert() to be triggered if configASSERT() is
-	defined, then stop here. */
-	configASSERT( xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED );
-
+	defined, then stop here so application writers can catch the error. */
+	//configASSERT( ulPortInterruptNesting == ~0UL );
+	portDISABLE_INTERRUPTS();
 	for( ;; );
 }
 

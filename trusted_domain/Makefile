@@ -17,7 +17,7 @@ ARCH_FLAGS := -march=$(MARCH) -mabi=$(MABI) -mcmodel=medany
 
 # 【3. 目录与产物配置】
 BUILD_DIR = build
-TARGET    = $(BUILD_DIR)/RTOSDemo
+TARGET    = $(BUILD_DIR)/trusted_fw
 # 这里填入咱们前面精心打磨的物理内存映射脚本
 LDSCRIPT  = link.lds
 

@@ -85,7 +85,7 @@
 				boot-hart = <&cpu7>; /* domian中用于boot的core */
                 next-arg1 = <0x0 0x00000000>; /* 下级程序的参数 */
 		        next-addr = <0x0 0xBF800000>; /* 下级程序的起始地址 */ 
-		        next-mode = <0x0>; /* 下级程序的允许模式 0为U模式，1为S模式 */
+		        next-mode = <0x1>; /* 下级程序的允许模式 0为U模式，1为S模式 */
                 system-reset-allowed; /* 允许复位 */
             };
 

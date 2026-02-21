@@ -146,31 +146,37 @@ extern void vTaskSwitchContext( void );
 
 /* ----------------------------------中断和临界区管理-------------------------------------- */
 
-#define portCRITICAL_NESTING_IN_TCB    0
+#define portCRITICAL_NESTING_IN_TCB    1 //使用TCB中的xCriticalNesting计数器记录临界区嵌套深度
 
 /* S模式使用sstatus.SIE控制中断使能。SIE是第1位，1为使能，0为禁用。 */
 #define portDISABLE_INTERRUPTS()   __asm volatile ( "csrc sstatus, 2" )
 #define portENABLE_INTERRUPTS()    __asm volatile ( "csrs sstatus, 2" )
 
-//通过xCriticalNesting计数器实现嵌套临界区:进几次临界区就要出几次临界区
+//通过计数器实现嵌套临界区:进几次临界区就要出几次临界区
 /* - 如果你在一个函数 A 中进入了临界区，然后 A 调用了函数 B，函数 B 也需要进入临界区，这就是嵌套。
    - 如果没有计数器机制，函数 B 退出临界区时就会直接开启中断，导致函数 A 剩下的代码不再受保护。 
 */
-extern size_t xCriticalNesting;
-#define portENTER_CRITICAL()      \
-    {                             \
-        portDISABLE_INTERRUPTS(); \
-        xCriticalNesting++;       \
-    }
+extern void vTaskEnterCritical( void );
+extern void vTaskExitCritical( void );
+#define portENTER_CRITICAL()	vTaskEnterCritical()
+#define portEXIT_CRITICAL()		vTaskExitCritical()
 
-#define portEXIT_CRITICAL()          \
-    {                                \
-        xCriticalNesting--;          \
-        if( xCriticalNesting == 0 )  \
-        {                            \
-            portENABLE_INTERRUPTS(); \
-        }                            \
-    }
+/*在支持中断嵌套的架构（比如 ARM Cortex-M）里，高优先级的中断可以打断低优先级的中断。
+如果你在一个 ISR 里面调用了 FreeRTOS 的 API（比如 xQueueSendFromISR），这个 API 内部有一段极其敏感的代码，决不能被更高优先级的中断打断。
+所以，API 会调用：
+uxSavedStatusValue = portSET_INTERRUPT_MASK_FROM_ISR();
+
+作用： 把当前的中断优先级掩码保存下来（存入变量），然后临时关掉所有受 FreeRTOS 管理的中断。
+等敏感代码执行完，再调用：
+portCLEAR_INTERRUPT_MASK_FROM_ISR(uxSavedStatusValue);
+
+作用： 把刚才保存的掩码恢复回去。
+为什么要这么麻烦？ 因为你本来就在中断里，你不知道进来之前掩码是多少，你不能在临界区结束后简单粗暴地“全开中断”，只能“恢复原样”。
+对于riscv不支持中断嵌套，所以不需要这个操作，直接定义为0
+*/
+
+#define portSET_INTERRUPT_MASK_FROM_ISR() 0
+#define portCLEAR_INTERRUPT_MASK_FROM_ISR( uxSavedStatusValue ) ( void ) uxSavedStatusValue
 
 
 /*----------------------------------可选的优化算法------------------------------------------*/

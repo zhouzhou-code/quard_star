@@ -52,14 +52,14 @@ cd $SHELL_FOLDER/dts
 dtc -I dts -O dtb -o $SHELL_FOLDER/output/uboot/quard_star_uboot.dtb quard_star_uboot.dts
 
 #编译trusted_domain
-if [ ! -d "$SHELL_FOLDER/output/trusted_domain" ]; then  
-mkdir $SHELL_FOLDER/output/trusted_domain
-fi  
-cd $SHELL_FOLDER/trusted_domain
-$CROSS_PREFIX-gcc -x assembler-with-cpp -c startup.s -o $SHELL_FOLDER/output/trusted_domain/startup.o
-$CROSS_PREFIX-gcc -nostartfiles -T./link.lds -Wl,-Map=$SHELL_FOLDER/output/trusted_domain/trusted_fw.map -Wl,--gc-sections $SHELL_FOLDER/output/trusted_domain/startup.o -o $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf
-$CROSS_PREFIX-objcopy -O binary -S $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf $SHELL_FOLDER/output/trusted_domain/trusted_fw.bin
-$CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf > $SHELL_FOLDER/output/trusted_domain/trusted_fw.lst
+# if [ ! -d "$SHELL_FOLDER/output/trusted_domain" ]; then  
+# mkdir $SHELL_FOLDER/output/trusted_domain
+# fi  
+# cd $SHELL_FOLDER/trusted_domain
+# $CROSS_PREFIX-gcc -x assembler-with-cpp -c startup.s -o $SHELL_FOLDER/output/trusted_domain/startup.o
+# $CROSS_PREFIX-gcc -nostartfiles -T./link.lds -Wl,-Map=$SHELL_FOLDER/output/trusted_domain/trusted_fw.map -Wl,--gc-sections $SHELL_FOLDER/output/trusted_domain/startup.o -o $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf
+# $CROSS_PREFIX-objcopy -O binary -S $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf $SHELL_FOLDER/output/trusted_domain/trusted_fw.bin
+# $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf > $SHELL_FOLDER/output/trusted_domain/trusted_fw.lst
 
 #编译uboot
 echo "------------------------- 编译uboot --------------------------------"
@@ -107,10 +107,21 @@ mkdir $SHELL_FOLDER/output/busybox/sys
 mkdir $SHELL_FOLDER/output/busybox/dev
 mkdir $SHELL_FOLDER/output/busybox/tmp
 
+#编译FreeRTOS
+echo "------------------------- 编译FreeRTOS --------------------------------"
+if [ ! -d "$SHELL_FOLDER/output/trusted_domain" ]; then  
+mkdir $SHELL_FOLDER/output/trusted_domain
+fi
+cd $SHELL_FOLDER/trusted_domain
+make clean
+make 
+cp $SHELL_FOLDER/trusted_domain/build/trusted_fw.bin $SHELL_FOLDER/output/trusted_domain/
+cp $SHELL_FOLDER/trusted_domain/build/trusted_fw.elf $SHELL_FOLDER/output/trusted_domain/
+
 
 # 合成firmware固件
 if [ ! -d "$SHELL_FOLDER/output/fw" ]; then  
-mkdir $SHELL_FOLDER/output/fwc
+mkdir $SHELL_FOLDER/output/fw
 fi  
 cd $SHELL_FOLDER/output/fw
 rm -rf fw.bin

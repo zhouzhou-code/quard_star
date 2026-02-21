@@ -76,7 +76,7 @@ static void prvTask1( void *pvParameters )
         g_counter++;
 
         /* 阻塞延时 1000 毫秒，交出 CPU 控制权 */
-        vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+        vTaskDelay( pdMS_TO_TICKS( 200 ) );
     }
 }
 
@@ -93,7 +93,7 @@ static void prvTask2( void *pvParameters )
         sbi_print_string("[Task 2] is running! Boop...\n");
 
         /* 阻塞延时 1500 毫秒 (时间错开，验证多任务并行) */
-        vTaskDelay( pdMS_TO_TICKS( 1500 ) );
+        vTaskDelay( pdMS_TO_TICKS( 200 ) );
     }
 }
 

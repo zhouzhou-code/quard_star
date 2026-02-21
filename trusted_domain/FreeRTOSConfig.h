@@ -69,7 +69,7 @@
 #define configMAX_CO_ROUTINE_PRIORITIES ( 2 )
 
 /* 软件定时器 */
-#define configUSE_TIMERS				1
+#define configUSE_TIMERS				0
 #define configTIMER_TASK_PRIORITY		( configMAX_PRIORITIES - 1 )
 #define configTIMER_QUEUE_LENGTH		5
 #define configTIMER_TASK_STACK_DEPTH	( configMINIMAL_STACK_SIZE )
@@ -84,7 +84,7 @@ to exclude the API function. */
 #define INCLUDE_vTaskDelayUntil			1
 #define INCLUDE_vTaskDelay				1
 #define INCLUDE_eTaskGetState			1
-#define INCLUDE_xTimerPendFunctionCall	1
+#define INCLUDE_xTimerPendFunctionCall	0  //RTOS守护任务(依赖定时器)关掉
 
 /* RISC-V S-Mode Specifics */
 
