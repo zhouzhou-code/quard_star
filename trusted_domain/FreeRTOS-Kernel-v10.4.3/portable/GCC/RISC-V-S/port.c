@@ -10,7 +10,9 @@
 #include "task.h"
 #include "portmacro.h"
 #include "riscv_sbi.h"
+#include <string.h>
 
+extern void xPortStartFirstTask( void );
 /*-----------------------------------------------------------*/
 
 /* 允许用户覆盖初始 RA 的预加载。 */
@@ -194,4 +196,19 @@ void vPortEndScheduler( void )
     /* 不应到达此处。 */
     configASSERT( xPortStartScheduler == NULL );
 }
+
+void prvTaskExitError( void )
+{
+	/* A function that implements a task must not exit or attempt to return to
+	its caller as there is nothing to return to. If a task wants to exit it
+	should instead call vTaskDelete( NULL ).
+
+	Artificially force an assert() to be triggered if configASSERT() is
+	defined, then stop here. */
+	configASSERT( xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED );
+
+	for( ;; );
+}
+
+
 /*-----------------------------------------------------------*/

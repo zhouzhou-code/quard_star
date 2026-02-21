@@ -2,5 +2,6 @@
     "files.exclude": {
         "**/*.o*": true,
         "**/*.su*": true
-    }
+    },
+    "cmake.sourceDirectory": "/home/zms/quard_star/trusted_domain/FreeRTOS-Kernel-v10.4.3"
 }

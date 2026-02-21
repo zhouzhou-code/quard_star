@@ -11,7 +11,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#include "riscv.h"
+#include "riscv_asm.h"
+#include "riscv_encoding.h"
 
 /* ------------------------------------移植基础数据类型定义------------------------------- */
 /**

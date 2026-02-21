@@ -349,6 +349,7 @@ handle_interrupt:
  * 此函数由 xPortStartScheduler 调用。
  * 它不使用标准的函数返回机制，而是直接跳转到第一个任务的入口点。
  */
+.global xPortStartFirstTask
 .align 8
 .func
 xPortStartFirstTask:

@@ -5,3 +5,5 @@ qemu.log
 opensbi-0.9
 *.elf
 *.mapqemu-8.0.2.tar.xz
+.trae
+.vscode
