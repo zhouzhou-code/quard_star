@@ -72,7 +72,7 @@ static void prvTask1( void *pvParameters )
     for( ;; )
     {
         /* 打印自己正在运行 */
-        sbi_print_string("[Task 1] is running! Beep...\n");
+        //sbi_print_string("[Task 1] is running! Beep...\n");
         g_counter++;
 
         /* 阻塞延时 1000 毫秒，交出 CPU 控制权 */
@@ -90,7 +90,7 @@ static void prvTask2( void *pvParameters )
     for( ;; )
     {
         /* 打印自己正在运行 */
-        sbi_print_string("[Task 2] is running! Boop...\n");
+        //sbi_print_string("[Task 2] is running! Boop...\n");
 
         /* 阻塞延时 1500 毫秒 (时间错开，验证多任务并行) */
         vTaskDelay( pdMS_TO_TICKS( 200 ) );

@@ -1,180 +1,430 @@
-# 获取当前脚本文件所在的目录
+#!/bin/bash
+set -e
+
+# ==============================================================================
+# Configuration
+# ==============================================================================
 SHELL_FOLDER=$(cd "$(dirname "$0")";pwd)
+OUTPUT_DIR="${SHELL_FOLDER}/output"
+JOBS=$(nproc)
 
-if [ ! -d "$SHELL_FOLDER/output" ]; then  
-mkdir $SHELL_FOLDER/output
-fi  
+# Toolchains
+GLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-linux-gnu
+GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-linux-gnu"
 
-echo "------------------------- 编译qemu---------------------------------------"
-cd qemu-8.0.2
-if [ ! -d "$SHELL_FOLDER/output/qemu" ]; then  
-./configure --prefix=$SHELL_FOLDER/output/qemu  --target-list=riscv64-softmmu --enable-gtk  --enable-virtfs --disable-gio
-fi  
-make -j16
-sudo make install
+NEWLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-elf
+NEWLIB_ELF_CROSS_PREFIX="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-elf"
 
+# Project Paths
+QEMU_DIR="${SHELL_FOLDER}/qemu-8.0.2"
+BOOT_DIR="${SHELL_FOLDER}/boot"
+OPENSBI_DIR="${SHELL_FOLDER}/opensbi-1.2"
+UBOOT_DIR="${SHELL_FOLDER}/u-boot-2026.01"
+KERNEL_DIR="${SHELL_FOLDER}/linux-5.10"
+BUSYBOX_DIR="${SHELL_FOLDER}/busybox-1.36.1"
+FREERTOS_DIR="${SHELL_FOLDER}/trusted_domain"
+DTS_DIR="${SHELL_FOLDER}/dts"
+BUSYBOX_ROOT_SCRIPT="${SHELL_FOLDER}/busybox_root_script"
 
-# # 编译 lowlevelboot
-echo "------------------------- 编译lowlevelboot-----------------------------"
-export PATH="/home/zms/riscv64-lp64d--glibc--stable-2025.08-1/bin:$PATH"
-CROSS_PREFIX=riscv64-linux
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
 
+log_step() {
+    local component=$1
+    local mode_str=$(echo "$BUILD_MODE" | tr '[:lower:]' '[:upper:]')
+    echo -e "\033[36m\n------------------------- [${mode_str}] ${component} -------------------------\033[0m"
+}
 
-if [ ! -d "$SHELL_FOLDER/output/lowlevelboot" ]; then  
-mkdir $SHELL_FOLDER/output/lowlevelboot
-fi  
-cd  $SHELL_FOLDER/boot
-$CROSS_PREFIX-gcc -x assembler-with-cpp -c start.s -o $SHELL_FOLDER/output/lowlevelboot/start.o
-$CROSS_PREFIX-gcc -nostartfiles -T./boot.lds -Wl,-Map=$SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.map -Wl,--gc-sections $SHELL_FOLDER/output/lowlevelboot/start.o -o $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.elf
-# 使用gnu工具生成原始的程序bin文件
-$CROSS_PREFIX-objcopy -O binary -S $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.elf $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.bin
-# 使用gnu工具生成反汇编文件，方便调试分析（当然我们这个代码太简单，不是很需要）
-$CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.elf > $SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.lst
+log_info() {
+    echo -e "\033[32m[INFO] $1\033[0m"
+}
 
-#编译 opensbi
-echo "------------------------- 编译opensbi --------------------------------"
-if [ ! -d "$SHELL_FOLDER/output/opensbi" ]; then  
-mkdir $SHELL_FOLDER/output/opensbi
-fi  
-cd $SHELL_FOLDER/opensbi-1.2  
-make distclean #必须要重新编译，否则改的链接地址不会生效
-make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star FW_TEXT_START=0xBFF80000 FW_JUMP=y FW_JUMP_ADDR=0xB0200000
-# make CROSS_COMPILE=$CROSS_PREFIX- PLATFORM=quard_star
-cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/fw_jump.bin $SHELL_FOLDER/output/opensbi/fw_jump.bin
-cp -r $SHELL_FOLDER/opensbi-1.2/build/platform/quard_star/firmware/fw_jump.elf $SHELL_FOLDER/output/opensbi/fw_jump.elf
-$CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/opensbi/fw_jump.elf > $SHELL_FOLDER/output/opensbi/fw_jump.lst
+log_error() {
+    echo -e "\033[31m[ERROR] $1\033[0m"
+}
 
-# 生成sbi.dtb
-cd $SHELL_FOLDER/dts
-dtc -I dts -O dtb -o $SHELL_FOLDER/output/opensbi/quard_star_sbi.dtb quard_star_sbi.dts
-# 生成uboot.dtb
-cd $SHELL_FOLDER/dts
-dtc -I dts -O dtb -o $SHELL_FOLDER/output/uboot/quard_star_uboot.dtb quard_star_uboot.dts
+check_dir() {
+    if [ ! -d "$1" ]; then
+        mkdir -p "$1"
+    fi
+}
 
-#编译trusted_domain
-# if [ ! -d "$SHELL_FOLDER/output/trusted_domain" ]; then  
-# mkdir $SHELL_FOLDER/output/trusted_domain
-# fi  
-# cd $SHELL_FOLDER/trusted_domain
-# $CROSS_PREFIX-gcc -x assembler-with-cpp -c startup.s -o $SHELL_FOLDER/output/trusted_domain/startup.o
-# $CROSS_PREFIX-gcc -nostartfiles -T./link.lds -Wl,-Map=$SHELL_FOLDER/output/trusted_domain/trusted_fw.map -Wl,--gc-sections $SHELL_FOLDER/output/trusted_domain/startup.o -o $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf
-# $CROSS_PREFIX-objcopy -O binary -S $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf $SHELL_FOLDER/output/trusted_domain/trusted_fw.bin
-# $CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/trusted_domain/trusted_fw.elf > $SHELL_FOLDER/output/trusted_domain/trusted_fw.lst
+# ==============================================================================
+# Build Functions
+# ==============================================================================
 
-#编译uboot
-echo "------------------------- 编译uboot --------------------------------"
-if [ ! -d "$SHELL_FOLDER/output/uboot" ]; then  
-mkdir $SHELL_FOLDER/output/uboot
-fi  
-cd $SHELL_FOLDER/u-boot-2026.01
+build_qemu() {
+    log_step "Building QEMU"
+    check_dir "${OUTPUT_DIR}/qemu"
+    
+    cd "${QEMU_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        if [ -d build ]; then rm -rf build; fi 
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        if [ -d build ]; then rm -rf build; fi
+    fi
 
-#删除旧的u-boot文件，防止编译时认为没有变化而不重新编译
-rm $SHELL_FOLDER/u-boot-2026.01/u-boot
-rm $SHELL_FOLDER/u-boot-2026.01/u-boot.map
-rm $SHELL_FOLDER/u-boot-2026.01/u-boot.bin
+    if [ ! -f "build/config-host.mak" ]; then
+        ./configure --prefix="${OUTPUT_DIR}/qemu" --target-list=riscv64-softmmu --enable-gtk --enable-virtfs --disable-gio
+    fi
+    make -j"${JOBS}"
+    sudo make install
+}
 
-make CROSS_COMPILE=$CROSS_PREFIX- qemu-quard-star_defconfig
-make CROSS_COMPILE=$CROSS_PREFIX- -j16 
-cp $SHELL_FOLDER/u-boot-2026.01/u-boot $SHELL_FOLDER/output/uboot/u-boot.elf
-cp $SHELL_FOLDER/u-boot-2026.01/u-boot.map $SHELL_FOLDER/output/uboot/u-boot.map
-cp $SHELL_FOLDER/u-boot-2026.01/u-boot.bin $SHELL_FOLDER/output/uboot/u-boot.bin
-$CROSS_PREFIX-objdump --source --demangle --disassemble --reloc --wide $SHELL_FOLDER/output/uboot/u-boot.elf > $SHELL_FOLDER/output/uboot/u-boot.lst
+build_lowlevelboot() {
+    log_step "Building LowLevelBoot"
+    check_dir "${OUTPUT_DIR}/lowlevelboot"
+    
+    cd "${BOOT_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        rm -f *.o *.elf *.bin *.lst *.map
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        rm -f *.o *.elf *.bin *.lst *.map
+    fi
 
-#编译linux kernel
-echo "------------------------- 编译linux kernel --------------------------------"
-if [ ! -d "$SHELL_FOLDER/output/linux_kernel" ]; then  
-mkdir $SHELL_FOLDER/output/linux_kernel
+    "${GLIB_ELF_CROSS_PREFIX}-gcc" -x assembler-with-cpp -c start.s -o "${OUTPUT_DIR}/lowlevelboot/start.o"
+    "${GLIB_ELF_CROSS_PREFIX}-gcc" -nostartfiles -T./boot.lds -Wl,-Map="${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.map" -Wl,--gc-sections "${OUTPUT_DIR}/lowlevelboot/start.o" -o "${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.elf"
+    "${GLIB_ELF_CROSS_PREFIX}-objcopy" -O binary -S "${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.elf" "${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.bin"
+    "${GLIB_ELF_CROSS_PREFIX}-objdump" --source --demangle --disassemble --reloc --wide "${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.elf" > "${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.lst"
+}
+
+build_opensbi() {
+    log_step "Building OpenSBI"
+    check_dir "${OUTPUT_DIR}/opensbi"
+    
+    cd "${OPENSBI_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make PLATFORM=quard_star distclean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make PLATFORM=quard_star distclean
+    fi
+
+    make CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" PLATFORM=quard_star FW_TEXT_START=0xBFF80000 FW_JUMP=y FW_JUMP_ADDR=0xB0200000
+    
+    cp "${OPENSBI_DIR}/build/platform/quard_star/firmware/fw_jump.bin" "${OUTPUT_DIR}/opensbi/fw_jump.bin"
+    cp "${OPENSBI_DIR}/build/platform/quard_star/firmware/fw_jump.elf" "${OUTPUT_DIR}/opensbi/fw_jump.elf"
+    "${GLIB_ELF_CROSS_PREFIX}-objdump" --source --demangle --disassemble --reloc --wide "${OUTPUT_DIR}/opensbi/fw_jump.elf" > "${OUTPUT_DIR}/opensbi/fw_jump.lst"
+    
+    # Generate DTB
+    cd "${DTS_DIR}"
+    dtc -I dts -O dtb -o "${OUTPUT_DIR}/opensbi/quard_star_sbi.dtb" quard_star_sbi.dts
+}
+
+build_uboot() {
+    log_step "Building U-Boot"
+    check_dir "${OUTPUT_DIR}/uboot"
+    
+    cd "${UBOOT_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make distclean
+        rm -f u-boot u-boot.map u-boot.bin
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make distclean
+        rm -f u-boot u-boot.map u-boot.bin
+    fi
+    
+    if [ ! -f ".config" ]; then
+        make CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" qemu-quard-star_defconfig
+    fi
+    
+    make CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
+    
+    cp u-boot "${OUTPUT_DIR}/uboot/u-boot.elf"
+    cp u-boot.map "${OUTPUT_DIR}/uboot/u-boot.map"
+    cp u-boot.bin "${OUTPUT_DIR}/uboot/u-boot.bin"
+    "${GLIB_ELF_CROSS_PREFIX}-objdump" --source --demangle --disassemble --reloc --wide "${OUTPUT_DIR}/uboot/u-boot.elf" > "${OUTPUT_DIR}/uboot/u-boot.lst"
+
+    # Generate U-Boot DTB
+    cd "${DTS_DIR}"
+    dtc -I dts -O dtb -o "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" quard_star_uboot.dts
+}
+
+build_kernel() {
+    log_step "Building Linux Kernel"
+    check_dir "${OUTPUT_DIR}/linux_kernel"
+    
+    cd "${KERNEL_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make distclean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make distclean
+    fi
+
+    if [ ! -f ".config" ]; then
+        make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" defconfig
+    fi
+    
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
+    
+    cp arch/riscv/boot/Image "${OUTPUT_DIR}/linux_kernel/Image"
+}
+
+build_busybox() {
+    log_step "Building BusyBox"
+    check_dir "${OUTPUT_DIR}/busybox"
+    
+    cd "${BUSYBOX_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make distclean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make distclean
+    fi
+    
+    unset srctree objtree VPATH
+    
+    if [ ! -f ".config" ]; then
+        make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" quard_star_defconfig
+    fi
+    
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" CONFIG_PREFIX="${OUTPUT_DIR}/busybox" install
+    
+    mkdir -p "${OUTPUT_DIR}/busybox/proc"
+    mkdir -p "${OUTPUT_DIR}/busybox/sys"
+    mkdir -p "${OUTPUT_DIR}/busybox/dev"
+    mkdir -p "${OUTPUT_DIR}/busybox/tmp"
+}
+
+build_freertos() {
+    log_step "Building FreeRTOS (Trusted Domain)"
+    check_dir "${OUTPUT_DIR}/trusted_domain"
+    
+    cd "${FREERTOS_DIR}"
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make clean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make clean
+    fi
+    
+    make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
+    
+    cp "${FREERTOS_DIR}/build/trusted_fw.bin" "${OUTPUT_DIR}/trusted_domain/"
+    cp "${FREERTOS_DIR}/build/trusted_fw.elf" "${OUTPUT_DIR}/trusted_domain/"
+}
+
+pack_firmware() {
+    log_step "Packing Firmware (fw.bin)"
+    check_dir "${OUTPUT_DIR}/fw"
+    cd "${OUTPUT_DIR}/fw"
+    
+    rm -rf fw.bin
+    dd if=/dev/zero of=fw.bin bs=1k count=32k status=none
+    
+    dd of=fw.bin bs=1k conv=notrunc seek=0 if="${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.bin" status=none
+    dd of=fw.bin bs=1k conv=notrunc seek=512 if="${OUTPUT_DIR}/opensbi/quard_star_sbi.dtb" status=none
+    dd of=fw.bin bs=1k conv=notrunc seek=1024 if="${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" status=none
+    dd of=fw.bin bs=1k conv=notrunc seek=2048 if="${OUTPUT_DIR}/opensbi/fw_jump.bin" status=none
+    dd of=fw.bin bs=1k conv=notrunc seek=4096 if="${OUTPUT_DIR}/trusted_domain/trusted_fw.bin" status=none
+    dd of=fw.bin bs=1k conv=notrunc seek=8192 if="${OUTPUT_DIR}/uboot/u-boot.bin" status=none
+    
+    log_info "Firmware packed at ${OUTPUT_DIR}/fw/fw.bin"
+}
+
+build_rootfs() {
+    log_step "Building Root Filesystem Image"
+    
+    if [ "$(id -u)" != "0" ]; then
+        if ! sudo -n true 2>/dev/null; then
+            log_error "Root privileges required for rootfs generation, but sudo requires password."
+            exit 1
+        fi
+        sudo -v
+    fi
+
+    ROOTFS_DIR="${OUTPUT_DIR}/rootfs"
+    check_dir "${ROOTFS_DIR}"
+    check_dir "${ROOTFS_DIR}/rootfs"
+    check_dir "${ROOTFS_DIR}/bootfs"
+    
+    IMG_FILE="${ROOTFS_DIR}/rootfs.img"
+    
+    # 执行清除逻辑
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        rm -f "${IMG_FILE}"
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        rm -f "${IMG_FILE}"
+    fi
+    
+    # 同步最新文件到临时目录
+    cp "${OUTPUT_DIR}/linux_kernel/Image" "${ROOTFS_DIR}/bootfs/Image"
+    cp "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" "${ROOTFS_DIR}/bootfs/quard_star.dtb"
+    cp -r "${OUTPUT_DIR}/busybox/"* "${ROOTFS_DIR}/rootfs/"
+    if [ -d "${BUSYBOX_ROOT_SCRIPT}" ]; then
+        cp -r "${BUSYBOX_ROOT_SCRIPT}/"* "${ROOTFS_DIR}/rootfs/"
+    fi
+    
+    "${UBOOT_DIR}/tools/mkimage" -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d "${DTS_DIR}/quard_star_uboot.cmd" "${ROOTFS_DIR}/bootfs/boot.scr"
+    
+    # 核心判断：是否需要全量格式化磁盘
+    local FORMAT_NEEDED=0
+    if [ ! -f "${IMG_FILE}" ]; then
+        FORMAT_NEEDED=1
+        log_info "Creating new image file (1GB)..."
+        dd if=/dev/zero of="${IMG_FILE}" bs=1M count=1024 status=progress
+    fi
+    
+    LOOP_DEV=$(sudo losetup -f)
+    if [ -z "${LOOP_DEV}" ]; then
+        log_error "No free loop device found!"
+        exit 1
+    fi
+    
+    sudo losetup -P "${LOOP_DEV}" "${IMG_FILE}"
+    
+    # 如果是新建文件或 Rebuild，则重新分区和格式化
+    if [ ${FORMAT_NEEDED} -eq 1 ]; then
+        log_info "Partitioning and Formatting ${LOOP_DEV}..."
+        sudo sfdisk "${LOOP_DEV}" <<EOF
+label: dos
+unit: sectors
+
+${LOOP_DEV}p1 : start=        2048, size=      196608, type=c
+${LOOP_DEV}p2 : start=      198656, size=     1898496, type=83
+EOF
+        sudo mkfs.vfat "${LOOP_DEV}p1"
+        sudo mkfs.ext4 -F "${LOOP_DEV}p2"  # -F 强制格式化，避免卡在确认提示
+    else
+        log_info "Image exists. Incremental update, skipping formatting."
+    fi
+    
+    TARGET_DIR="${ROOTFS_DIR}/target"
+    mkdir -p "${TARGET_DIR}/bootfs" "${TARGET_DIR}/rootfs"
+    
+    sudo mount "${LOOP_DEV}p1" "${TARGET_DIR}/bootfs"
+    sudo mount "${LOOP_DEV}p2" "${TARGET_DIR}/rootfs"
+    
+    log_info "Copying files to image partitions..."
+    # 使用 cp -ru 仅更新有变动的文件，更符合增量原则
+    sudo cp -ru "${ROOTFS_DIR}/bootfs/"* "${TARGET_DIR}/bootfs/"
+    sudo cp -ru "${ROOTFS_DIR}/rootfs/"* "${TARGET_DIR}/rootfs/"
+    
+    sync
+    sudo umount "${TARGET_DIR}/bootfs" || true
+    sudo umount "${TARGET_DIR}/rootfs" || true
+    sudo losetup -d "${LOOP_DEV}"
+    
+    log_info "Rootfs image generated/updated at ${IMG_FILE}"
+}
+
+clean_all() {
+    log_step "Cleaning all build artifacts"
+    rm -rf "${OUTPUT_DIR}"
+    cd "${QEMU_DIR}" && if [ -d build ]; then rm -rf build; fi
+    cd "${UBOOT_DIR}" && make distclean
+    cd "${KERNEL_DIR}" && make distclean
+    cd "${OPENSBI_DIR}" && make distclean
+    cd "${BUSYBOX_DIR}" && make distclean
+    cd "${FREERTOS_DIR}" && make clean
+}
+
+usage() {
+    echo "Usage: $0 [target] [mode]"
+    echo "Targets:"
+    echo "  all        Build everything (default)"
+    echo "  clean      Clean all build artifacts and source directories"
+    echo "  qemu       Build QEMU"
+    echo "  boot       Build LowLevelBoot"
+    echo "  opensbi    Build OpenSBI"
+    echo "  uboot      Build U-Boot"
+    echo "  kernel     Build Linux Kernel"
+    echo "  busybox    Build BusyBox"
+    echo "  freertos   Build FreeRTOS (Trusted Domain)"
+    echo "  rootfs     Build Root Filesystem Image"
+    echo "  firmware   Pack Firmware (fw.bin)"
+    echo ""
+    echo "Modes:"
+    echo "  incremental (default)  Build only changed files"
+    echo "  clean                  Clean before building"
+    echo "  rebuild                Clean then build"
+}
+
+# ==============================================================================
+# Main Logic
+# ==============================================================================
+
+if [ ! -d "${OUTPUT_DIR}" ]; then
+    mkdir -p "${OUTPUT_DIR}"
 fi
-cd $SHELL_FOLDER/linux-5.10
-make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- defconfig
-make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- -j24
-cp $SHELL_FOLDER/linux-5.10/arch/riscv/boot/Image $SHELL_FOLDER/output/linux_kernel/Image
 
-
-#编译busybox
-echo "------------------------- 编译busybox --------------------------------"
-if [ ! -d "$SHELL_FOLDER/output/busybox" ]; then  
-mkdir $SHELL_FOLDER/output/busybox
-fi
-cd $SHELL_FOLDER/busybox-1.36.1
-make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- quard_star_defconfig
-make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- -j24
-make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- install
-make ARCH=riscv CROSS_COMPILE=$CROSS_PREFIX- CONFIG_PREFIX=$SHELL_FOLDER/output/busybox install
-#手动添加挂载目录，因为busybox的安装脚本只会安装busybox的二进制文件和链接，并不会创建挂载点目录
-mkdir $SHELL_FOLDER/output/busybox/proc
-mkdir $SHELL_FOLDER/output/busybox/sys
-mkdir $SHELL_FOLDER/output/busybox/dev
-mkdir $SHELL_FOLDER/output/busybox/tmp
-
-#编译FreeRTOS
-echo "------------------------- 编译FreeRTOS --------------------------------"
-if [ ! -d "$SHELL_FOLDER/output/trusted_domain" ]; then  
-mkdir $SHELL_FOLDER/output/trusted_domain
-fi
-cd $SHELL_FOLDER/trusted_domain
-make clean
-make 
-cp $SHELL_FOLDER/trusted_domain/build/trusted_fw.bin $SHELL_FOLDER/output/trusted_domain/
-cp $SHELL_FOLDER/trusted_domain/build/trusted_fw.elf $SHELL_FOLDER/output/trusted_domain/
-
-
-# 合成firmware固件
-if [ ! -d "$SHELL_FOLDER/output/fw" ]; then  
-mkdir $SHELL_FOLDER/output/fw
-fi  
-cd $SHELL_FOLDER/output/fw
-rm -rf fw.bin
-#先填充32K的0
-dd of=fw.bin bs=1k count=32k if=/dev/zero
-
-#写入lowlevelboot程序 偏移量0k
-dd of=fw.bin bs=1k conv=notrunc seek=0 if=$SHELL_FOLDER/output/lowlevelboot/lowlevel_fw.bin
-#写入quard_star_sbi.dtb 偏移量512,因此fdt的地址偏移量为0x80000
-dd of=fw.bin bs=1k conv=notrunc seek=512 if=$SHELL_FOLDER/output/opensbi/quard_star_sbi.dtb
-#写入quard_star_uboot.dtb 偏移量1024,因此fdt的地址偏移量为0x100000
-dd of=fw.bin bs=1k conv=notrunc seek=1k if=$SHELL_FOLDER/output/uboot/quard_star_uboot.dtb
-#写入opensbi程序 偏移量2k*1k=2048k=0x200000
-dd of=fw.bin bs=1k conv=notrunc seek=2k if=$SHELL_FOLDER/output/opensbi/fw_jump.bin
-#写入trusted_domain.bin 偏移量1k*4k=0x400000
-dd of=fw.bin bs=1k conv=notrunc seek=4k if=$SHELL_FOLDER/output/trusted_domain/trusted_fw.bin
-#写入uboot 偏移量8k*1k=0x800000
-dd of=fw.bin bs=1k conv=notrunc seek=8k if=$SHELL_FOLDER/output/uboot/u-boot.bin
-
-
-# 合成文件系统映像
-if [ ! -d "$SHELL_FOLDER/output/rootfs" ]; then  
-mkdir $SHELL_FOLDER/output/rootfs
+# Argument Parsing
+TARGET=$1
+if [ -z "$TARGET" ]; then
+    TARGET="all"
 fi
 
-if [ ! -d "$SHELL_FOLDER/output/rootfs/rootfs" ]; then  
-mkdir $SHELL_FOLDER/output/rootfs/rootfs
+# 明确判断第2个参数，默认为 incremental
+if [ -z "$2" ]; then
+    BUILD_MODE="incremental"
+elif [ "$2" == "clean" ]; then
+    BUILD_MODE="clean"
+elif [ "$2" == "rebuild" ]; then
+    BUILD_MODE="rebuild"
+elif [ "$2" == "incremental" ]; then
+    BUILD_MODE="incremental"
+else
+    echo "Invalid mode: $2"
+    usage
+    exit 1
 fi
 
-if [ ! -d "$SHELL_FOLDER/output/rootfs/bootfs" ]; then  
-mkdir $SHELL_FOLDER/output/rootfs/bootfs
-fi
+case "$TARGET" in
+    "all")
+        build_qemu
+        build_lowlevelboot
+        build_opensbi
+        build_freertos
+        build_uboot
+        build_kernel
+        build_busybox
+        pack_firmware
+        build_rootfs
+        ;;
+    "clean")
+        clean_all
+        ;;
+    "qemu")
+        build_qemu
+        ;;
+    "boot")
+        build_lowlevelboot
+        pack_firmware
+        ;;
+    "opensbi")
+        build_opensbi
+        pack_firmware
+        ;;
+    "uboot")
+        build_uboot
+        pack_firmware
+        ;;
+    "kernel")
+        build_kernel
+        ;;
+    "busybox")
+        build_busybox
+        ;;
+    "freertos")
+        build_freertos
+        pack_firmware
+        ;;
+    "rootfs")
+        build_rootfs
+        ;;
+    "firmware")
+        pack_firmware
+        ;;
+    "help"|*)
+        usage
+        ;;
+esac
 
-cd $SHELL_FOLDER/output/rootfs
-
-# 创建1G的空白镜像文件,并调用子脚本，传入空白镜像文件和分区表文件进行分区格式化
-if [ ! -f "$SHELL_FOLDER/output/rootfs/rootfs.img" ]; then  
-dd if=/dev/zero of=rootfs.img bs=1M count=1024
-sudo $SHELL_FOLDER/build_rootfs/generate_rootfs.sh $SHELL_FOLDER/output/rootfs/rootfs.img $SHELL_FOLDER/build_rootfs/sfdisk
-fi
-
-
-# 复制内核镜像和设备树到bootfs目录,复制busybox编译好的文件到rootfs目录
-cp $SHELL_FOLDER/output/linux_kernel/Image $SHELL_FOLDER/output/rootfs/bootfs/Image
-cp $SHELL_FOLDER/output/uboot/quard_star_uboot.dtb $SHELL_FOLDER/output/rootfs/bootfs/quard_star.dtb
-cp -r $SHELL_FOLDER/output/busybox/* $SHELL_FOLDER/output/rootfs/rootfs/
-cp -r $SHELL_FOLDER/busybox_root_script/*  $SHELL_FOLDER/output/rootfs/rootfs/
-
-# 生成boot.scr启动脚本告诉uboot去哪里引导系统
-$SHELL_FOLDER/u-boot-2026.01/tools/mkimage -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d $SHELL_FOLDER/dts/quard_star_uboot.cmd $SHELL_FOLDER/output/rootfs/bootfs/boot.scr
-#调用子脚本，将准备好的bootfs和rootfs内容写入到镜像文件分区中
-sudo $SHELL_FOLDER/build_rootfs/build.sh $SHELL_FOLDER/output/rootfs
- 
-#  dd if=/dev/zero of=./output/rootfs/rootfs.img bs=1M count=1024
-# sudo ./build_rootfs/generate_rootfs.sh ./output/rootfs/rootfs.img ./build_rootfs/sfdisk
-# sudo ./build_rootfs/build.sh ./output/rootfs
+echo -e "\n\033[32m[SUCCESS] Done!\033[0m"

@@ -1,0 +1,6 @@
+/dts-v1/;
+
+/ {
+	model = "Quard Star QEMU";
+	compatible = "quard,star";
+};

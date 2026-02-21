@@ -19,6 +19,7 @@ CONFIG_STACK_SIZE=0x100000
 
 # 设置环境变量存储区大小为 128KB（0x20000 字节）
 CONFIG_ENV_SIZE=0x20000
+CONFIG_DEFAULT_DEVICE_TREE="quard_star"
  
 # 设置默认的加载地址为 0x80200000; 当加载内核、设备树等文件时，如果没有指定地址，会使用这个地址
 CONFIG_SYS_LOAD_ADDR=0x80200000
