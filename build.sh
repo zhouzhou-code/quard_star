@@ -6,11 +6,17 @@ set -e
 # ==============================================================================
 SHELL_FOLDER=$(cd "$(dirname "$0")";pwd)
 OUTPUT_DIR="${SHELL_FOLDER}/output"
-JOBS=$(nproc)
+# JOBS=$(nproc)
+JOBS=24
+
 
 # Toolchains
 GLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-linux-gnu
 GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-linux-gnu"
+
+# 低版本的交叉编译工具链，适配低版本的linux内核,千万不要用
+# GLIB_ELF_CROSS_COMPILE_DIR=/opt/riscv64-lp64d--glibc--bleeding-edge-2021.11-1
+# GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-linux"
 
 NEWLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-elf
 NEWLIB_ELF_CROSS_PREFIX="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-elf"
@@ -156,9 +162,9 @@ build_kernel() {
         make distclean
     fi
 
-    if [ ! -f ".config" ]; then
-        make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" defconfig
-    fi
+    # if [ ! -f ".config" ]; then
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" defconfig 
+    # fi
     
     make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
     
@@ -408,9 +414,11 @@ case "$TARGET" in
         ;;
     "kernel")
         build_kernel
+        build_rootfs
         ;;
     "busybox")
         build_busybox
+        build_rootfs
         ;;
     "freertos")
         build_freertos
