@@ -11,7 +11,7 @@ JOBS=24
 
 
 # Toolchains
-GLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-linux-gnu
+GLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc15-riscv64-unknown-linux-gnu
 GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-linux-gnu"
 
 # 低版本的交叉编译工具链，适配低版本的linux内核,千万不要用
@@ -26,7 +26,7 @@ QEMU_DIR="${SHELL_FOLDER}/qemu-8.0.2"
 BOOT_DIR="${SHELL_FOLDER}/boot"
 OPENSBI_DIR="${SHELL_FOLDER}/opensbi-1.2"
 UBOOT_DIR="${SHELL_FOLDER}/u-boot-2026.01"
-KERNEL_DIR="${SHELL_FOLDER}/linux-5.10"
+KERNEL_DIR="${SHELL_FOLDER}/linux"
 BUSYBOX_DIR="${SHELL_FOLDER}/busybox-1.36.1"
 FREERTOS_DIR="${SHELL_FOLDER}/trusted_domain"
 DTS_DIR="${SHELL_FOLDER}/dts"
