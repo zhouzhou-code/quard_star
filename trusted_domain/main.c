@@ -57,7 +57,7 @@ int main( void )
     vTaskStartScheduler();
 
     /* 正常情况下永远不会执行到这里。如果到了这里，说明内存堆 (Heap) 不够了 */
-    sbi_print_string("🚨 ERROR: Insufficient Heap Memory!\n");
+    //sbi_print_string("🚨 ERROR: Insufficient Heap Memory!\n");
     for( ;; );
     return 0;
 }
@@ -72,11 +72,11 @@ static void prvTask1( void *pvParameters )
     for( ;; )
     {
         /* 打印自己正在运行 */
-        //sbi_print_string("[Task 1] is running! Beep...\n");
+        // sbi_print_string("[Task 1] is running! Beep...\n");
         g_counter++;
 
         /* 阻塞延时 1000 毫秒，交出 CPU 控制权 */
-        vTaskDelay( pdMS_TO_TICKS( 200 ) );
+        vTaskDelay( pdMS_TO_TICKS( 4000 ) );
     }
 }
 
@@ -90,10 +90,10 @@ static void prvTask2( void *pvParameters )
     for( ;; )
     {
         /* 打印自己正在运行 */
-        //sbi_print_string("[Task 2] is running! Boop...\n");
+        // sbi_print_string("[Task 2] is running! Boop...\n");
 
         /* 阻塞延时 1500 毫秒 (时间错开，验证多任务并行) */
-        vTaskDelay( pdMS_TO_TICKS( 200 ) );
+        vTaskDelay( pdMS_TO_TICKS( 8000 ) );
     }
 }
 
@@ -104,7 +104,7 @@ void vApplicationMallocFailedHook( void )
 {
     /* 内存分配失败钩子：疯狂打印报错并死机 */
     taskDISABLE_INTERRUPTS();
-    sbi_print_string("\n🚨 FATAL: Malloc Failed Hook Triggered!\n");
+    // sbi_print_string("\n🚨 FATAL: Malloc Failed Hook Triggered!\n");
     for( ;; );
 }
 

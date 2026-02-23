@@ -11,5 +11,22 @@
         bootargs = "root=/dev/vda2 rw console=ttyS0";
         stdout-path = "/soc/uart0@10000000";
     };
+    reserved-memory {
+        #address-cells = <0x2>;
+        #size-cells = <0x2>;
+        ranges;
+
+        /* 保护 FreeRTOS 的运行空间和sbi_dts (0xBF800000 到 0xBFF80000) */
+        freertos_mem: freertos_region@bf800000 {
+            no-map; /* 核心指令：严禁 Linux 为其建立页表映射 */
+            reg = <0x0 0xbf800000 0x0 0x00780000>; 
+        };
+
+        /* 保护 OpenSBI 的固件空间 (0xBFF80000 往上) */
+        opensbi_mem: opensbi_region@bff80000 {
+            no-map;
+            reg = <0x0 0xbff80000 0x0 0x00080000>;
+        };
+    };
 
 };
