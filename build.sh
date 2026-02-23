@@ -32,6 +32,14 @@ FREERTOS_DIR="${SHELL_FOLDER}/trusted_domain"
 DTS_DIR="${SHELL_FOLDER}/dts"
 BUSYBOX_ROOT_SCRIPT="${SHELL_FOLDER}/busybox_root_script"
 
+
+#采用patch方式管理linx kernel 
+KERNEL_VER="v6.10" #v6.10 v5.10
+PATCH_FILE="../linux_mypatches/quard_star_linux_${KERNEL_VER}.patch"
+CONFIG_FILE="../linux_myconfigs/${KERNEL_VER}_config"
+# 用一个隐藏文件记录当前 Linux 目录处于哪个版本
+VERSION_MARKER="../.current_kernel_ver"
+
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
@@ -59,6 +67,8 @@ check_dir() {
 # ==============================================================================
 # Build Functions
 # ==============================================================================
+
+
 
 build_qemu() {
     log_step "Building QEMU"
@@ -151,25 +161,65 @@ build_uboot() {
 }
 
 build_kernel() {
-    log_step "Building Linux Kernel"
-    check_dir "${OUTPUT_DIR}/linux_kernel"
-    
-    cd "${KERNEL_DIR}"
-    if [ "${BUILD_MODE}" == "clean" ]; then
-        make distclean
-        return 0
-    elif [ "${BUILD_MODE}" == "rebuild" ]; then
-        make distclean
+    log_step "Building Linux Kernel $KERNEL_VER"
+    # 1. 如果连 linux 目录都没有，说明是新拉取的项目
+    if [ ! -d "linux" ]; then
+        echo "[INFO] 未检测到源码，正在拉取 Linux..."
+        git clone --reference ../linux -b $KERNEL_VER https://mirrors.tuna.tsinghua.edu.cn/git/linux.git linux
     fi
 
-    # if [ ! -f ".config" ]; then
-    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" defconfig 
-    # fi
+    cd linux
+
+   # 2. 安全地检查当前源码状态
+    if [ -f "$VERSION_MARKER" ]; then
+        CURRENT_STATE=$(cat "$VERSION_MARKER")
+    else
+        CURRENT_STATE="none"
+    fi
+
+    if [ "$CURRENT_STATE" != "$KERNEL_VER" ]; then
+        echo "[INFO] 检测到版本切换或首次编译 ($CURRENT_STATE -> $KERNEL_VER)。准备大扫除..."
+        
+        # 双重核弹清场：Git层面清理 + Make层面清理
+        git reset --hard HEAD
+        git clean -fdx
+        make mrproper
+        
+        # 切换到目标版本
+        git checkout $KERNEL_VER
+        
+        # 打入专属补丁
+        if [ -f "$PATCH_FILE" ]; then
+            echo "[INFO] 正在应用补丁: $PATCH_FILE"
+            patch -p1 < "$PATCH_FILE"
+        else
+            echo "[WARN] 未找到补丁文件，将使用原生纯净源码。"
+        fi
+
+        # 智能配置加载逻辑：有备份用备份，没备份用默认！
+        if [ -f "$CONFIG_FILE" ]; then
+            echo "[INFO] 载入自定义配置文件: $CONFIG_FILE"
+            cp "$CONFIG_FILE" .config
+        else
+            echo "[WARN] 未找到自定义配置 ($CONFIG_FILE)。"
+            echo "[INFO] 正在自动生成 RISC-V 原生默认配置 (defconfig)..."
+            make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" defconfig
+            mkdir -p "$(dirname "$CONFIG_FILE")"
+            cp .config "$CONFIG_FILE"
+        fi
+        
+        # 更新记忆标记
+        echo "$KERNEL_VER" > "$VERSION_MARKER"
+    else
+        echo "[INFO] 源码版本 ($KERNEL_VER) 无变化，跳过补丁应用，准备增量编译..."
+    fi
+
+    # 3. 开始干活！（增量编译）
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j$(nproc)
     
-    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
-    
-    cp arch/riscv/boot/Image "${OUTPUT_DIR}/linux_kernel/Image"
+    cd ..
 }
+
 
 build_busybox() {
     log_step "Building BusyBox"
@@ -236,13 +286,14 @@ pack_firmware() {
 
 build_rootfs() {
     log_step "Building Root Filesystem Image"
-    
+        
+    # 删掉 -n 的非交互检测，直接提权
     if [ "$(id -u)" != "0" ]; then
-        if ! sudo -n true 2>/dev/null; then
-            log_error "Root privileges required for rootfs generation, but sudo requires password."
+        log_info "需要 root 权限来生成根文件系统，请稍后输入密码..."
+        if ! sudo -v; then
+            log_error "提权失败或已取消，脚本退出。"
             exit 1
         fi
-        sudo -v
     fi
 
     ROOTFS_DIR="${OUTPUT_DIR}/rootfs"

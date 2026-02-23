@@ -1,5 +1,6 @@
 output
 qemu-8.0.2/build
+linux/
 qemu.log
 opensbi-0.9
 *.elf
