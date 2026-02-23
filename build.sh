@@ -4,24 +4,20 @@ set -e
 # ==============================================================================
 # Configuration
 # ==============================================================================
+# 获取脚本所在的绝对路径，作为整个工程的根基
 SHELL_FOLDER=$(cd "$(dirname "$0")";pwd)
 OUTPUT_DIR="${SHELL_FOLDER}/output"
-# JOBS=$(nproc)
+#JOBS=$(nproc)
 JOBS=24
-
 
 # Toolchains
 GLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc15-riscv64-unknown-linux-gnu
 GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-linux-gnu"
 
-# 低版本的交叉编译工具链，适配低版本的linux内核,千万不要用
-# GLIB_ELF_CROSS_COMPILE_DIR=/opt/riscv64-lp64d--glibc--bleeding-edge-2021.11-1
-# GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-linux"
-
 NEWLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-elf
 NEWLIB_ELF_CROSS_PREFIX="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-elf"
 
-# Project Paths
+# Project Paths (全部使用绝对路径)
 QEMU_DIR="${SHELL_FOLDER}/qemu-8.0.2"
 BOOT_DIR="${SHELL_FOLDER}/boot"
 OPENSBI_DIR="${SHELL_FOLDER}/opensbi-1.2"
@@ -32,13 +28,12 @@ FREERTOS_DIR="${SHELL_FOLDER}/trusted_domain"
 DTS_DIR="${SHELL_FOLDER}/dts"
 BUSYBOX_ROOT_SCRIPT="${SHELL_FOLDER}/busybox_root_script"
 
-
-#采用patch方式管理linx kernel 
+# 采用patch方式管理linux kernel (杜绝 ../ 相对路径，全部换成绝对路径)
 KERNEL_VER="v6.10" #v6.10 v5.10
-PATCH_FILE="../linux_mypatches/quard_star_linux_${KERNEL_VER}.patch"
-CONFIG_FILE="../linux_myconfigs/${KERNEL_VER}_config"
+PATCH_FILE="${SHELL_FOLDER}/linux_mypatches/quard_star_linux_${KERNEL_VER}.patch"
+CONFIG_FILE="${SHELL_FOLDER}/linux_myconfigs/${KERNEL_VER}_config"
 # 用一个隐藏文件记录当前 Linux 目录处于哪个版本
-VERSION_MARKER="../.current_kernel_ver"
+VERSION_MARKER="${SHELL_FOLDER}/.current_kernel_ver"
 
 # ==============================================================================
 # Helper Functions
@@ -68,9 +63,8 @@ check_dir() {
 # Build Functions
 # ==============================================================================
 
-
-
 build_qemu() {
+    cd "${SHELL_FOLDER}"  # 强制归位
     log_step "Building QEMU"
     check_dir "${OUTPUT_DIR}/qemu"
     
@@ -90,6 +84,7 @@ build_qemu() {
 }
 
 build_lowlevelboot() {
+    cd "${SHELL_FOLDER}"
     log_step "Building LowLevelBoot"
     check_dir "${OUTPUT_DIR}/lowlevelboot"
     
@@ -108,6 +103,7 @@ build_lowlevelboot() {
 }
 
 build_opensbi() {
+    cd "${SHELL_FOLDER}"
     log_step "Building OpenSBI"
     check_dir "${OUTPUT_DIR}/opensbi"
     
@@ -125,12 +121,15 @@ build_opensbi() {
     cp "${OPENSBI_DIR}/build/platform/quard_star/firmware/fw_jump.elf" "${OUTPUT_DIR}/opensbi/fw_jump.elf"
     "${GLIB_ELF_CROSS_PREFIX}-objdump" --source --demangle --disassemble --reloc --wide "${OUTPUT_DIR}/opensbi/fw_jump.elf" > "${OUTPUT_DIR}/opensbi/fw_jump.lst"
     
-    # Generate DTB
-    cd "${DTS_DIR}"
-    dtc -I dts -O dtb -o "${OUTPUT_DIR}/opensbi/quard_star_sbi.dtb" quard_star_sbi.dts
+    # Generate DTB (使用括号开启子Shell，隔离目录切换)
+    (
+        cd "${DTS_DIR}"
+        dtc -I dts -O dtb -o "${OUTPUT_DIR}/opensbi/quard_star_sbi.dtb" quard_star_sbi.dts
+    )
 }
 
 build_uboot() {
+    cd "${SHELL_FOLDER}"
     log_step "Building U-Boot"
     check_dir "${OUTPUT_DIR}/uboot"
     
@@ -155,22 +154,24 @@ build_uboot() {
     cp u-boot.bin "${OUTPUT_DIR}/uboot/u-boot.bin"
     "${GLIB_ELF_CROSS_PREFIX}-objdump" --source --demangle --disassemble --reloc --wide "${OUTPUT_DIR}/uboot/u-boot.elf" > "${OUTPUT_DIR}/uboot/u-boot.lst"
 
-    # Generate U-Boot DTB
-    cd "${DTS_DIR}"
-    dtc -I dts -O dtb -o "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" quard_star_uboot.dts
+    # Generate U-Boot DTB (使用子Shell隔离)
+    (
+        cd "${DTS_DIR}"
+        dtc -I dts -O dtb -o "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" quard_star_uboot.dts
+    )
 }
 
 build_kernel() {
+    cd "${SHELL_FOLDER}"
     log_step "Building Linux Kernel $KERNEL_VER"
-    # 1. 如果连 linux 目录都没有，说明是新拉取的项目
-    if [ ! -d "linux" ]; then
+    
+    if [ ! -d "${KERNEL_DIR}" ]; then
         echo "[INFO] 未检测到源码，正在拉取 Linux..."
-        git clone --reference ../linux -b $KERNEL_VER https://mirrors.tuna.tsinghua.edu.cn/git/linux.git linux
+        git clone --reference "${SHELL_FOLDER}/linux" -b $KERNEL_VER https://mirrors.tuna.tsinghua.edu.cn/git/linux.git "${KERNEL_DIR}"
     fi
 
-    cd linux
+    cd "${KERNEL_DIR}"
 
-   # 2. 安全地检查当前源码状态
     if [ -f "$VERSION_MARKER" ]; then
         CURRENT_STATE=$(cat "$VERSION_MARKER")
     else
@@ -180,15 +181,12 @@ build_kernel() {
     if [ "$CURRENT_STATE" != "$KERNEL_VER" ]; then
         echo "[INFO] 检测到版本切换或首次编译 ($CURRENT_STATE -> $KERNEL_VER)。准备大扫除..."
         
-        # 双重核弹清场：Git层面清理 + Make层面清理
         git reset --hard HEAD
         git clean -fdx
         make mrproper
         
-        # 切换到目标版本
         git checkout $KERNEL_VER
         
-        # 打入专属补丁
         if [ -f "$PATCH_FILE" ]; then
             echo "[INFO] 正在应用补丁: $PATCH_FILE"
             patch -p1 < "$PATCH_FILE"
@@ -196,7 +194,6 @@ build_kernel() {
             echo "[WARN] 未找到补丁文件，将使用原生纯净源码。"
         fi
 
-        # 智能配置加载逻辑：有备份用备份，没备份用默认！
         if [ -f "$CONFIG_FILE" ]; then
             echo "[INFO] 载入自定义配置文件: $CONFIG_FILE"
             cp "$CONFIG_FILE" .config
@@ -208,20 +205,16 @@ build_kernel() {
             cp .config "$CONFIG_FILE"
         fi
         
-        # 更新记忆标记
         echo "$KERNEL_VER" > "$VERSION_MARKER"
     else
         echo "[INFO] 源码版本 ($KERNEL_VER) 无变化，跳过补丁应用，准备增量编译..."
     fi
 
-    # 3. 开始干活！（增量编译）
-    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j$(nproc)
-    
-    cd ..
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
 }
 
-
 build_busybox() {
+    cd "${SHELL_FOLDER}"
     log_step "Building BusyBox"
     check_dir "${OUTPUT_DIR}/busybox"
     
@@ -249,6 +242,7 @@ build_busybox() {
 }
 
 build_freertos() {
+    cd "${SHELL_FOLDER}"
     log_step "Building FreeRTOS (Trusted Domain)"
     check_dir "${OUTPUT_DIR}/trusted_domain"
     
@@ -267,6 +261,7 @@ build_freertos() {
 }
 
 pack_firmware() {
+    cd "${SHELL_FOLDER}"
     log_step "Packing Firmware (fw.bin)"
     check_dir "${OUTPUT_DIR}/fw"
     cd "${OUTPUT_DIR}/fw"
@@ -285,9 +280,9 @@ pack_firmware() {
 }
 
 build_rootfs() {
+    cd "${SHELL_FOLDER}"
     log_step "Building Root Filesystem Image"
         
-    # 删掉 -n 的非交互检测，直接提权
     if [ "$(id -u)" != "0" ]; then
         log_info "需要 root 权限来生成根文件系统，请稍后输入密码..."
         if ! sudo -v; then
@@ -303,7 +298,6 @@ build_rootfs() {
     
     IMG_FILE="${ROOTFS_DIR}/rootfs.img"
     
-    # 执行清除逻辑
     if [ "${BUILD_MODE}" == "clean" ]; then
         rm -f "${IMG_FILE}"
         return 0
@@ -311,7 +305,7 @@ build_rootfs() {
         rm -f "${IMG_FILE}"
     fi
     
-    # 同步最新文件到临时目录
+    # 临时目录同步文件
     cp "${OUTPUT_DIR}/linux_kernel/Image" "${ROOTFS_DIR}/bootfs/Image"
     cp "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" "${ROOTFS_DIR}/bootfs/quard_star.dtb"
     cp -r "${OUTPUT_DIR}/busybox/"* "${ROOTFS_DIR}/rootfs/"
@@ -321,7 +315,6 @@ build_rootfs() {
     
     "${UBOOT_DIR}/tools/mkimage" -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d "${DTS_DIR}/quard_star_uboot.cmd" "${ROOTFS_DIR}/bootfs/boot.scr"
     
-    # 核心判断：是否需要全量格式化磁盘
     local FORMAT_NEEDED=0
     if [ ! -f "${IMG_FILE}" ]; then
         FORMAT_NEEDED=1
@@ -337,7 +330,6 @@ build_rootfs() {
     
     sudo losetup -P "${LOOP_DEV}" "${IMG_FILE}"
     
-    # 如果是新建文件或 Rebuild，则重新分区和格式化
     if [ ${FORMAT_NEEDED} -eq 1 ]; then
         log_info "Partitioning and Formatting ${LOOP_DEV}..."
         sudo sfdisk "${LOOP_DEV}" <<EOF
@@ -348,7 +340,7 @@ ${LOOP_DEV}p1 : start=        2048, size=      196608, type=c
 ${LOOP_DEV}p2 : start=      198656, size=     1898496, type=83
 EOF
         sudo mkfs.vfat "${LOOP_DEV}p1"
-        sudo mkfs.ext4 -F "${LOOP_DEV}p2"  # -F 强制格式化，避免卡在确认提示
+        sudo mkfs.ext4 -F "${LOOP_DEV}p2"
     else
         log_info "Image exists. Incremental update, skipping formatting."
     fi
@@ -360,7 +352,6 @@ EOF
     sudo mount "${LOOP_DEV}p2" "${TARGET_DIR}/rootfs"
     
     log_info "Copying files to image partitions..."
-    # 使用 cp -ru 仅更新有变动的文件，更符合增量原则
     sudo cp -ru "${ROOTFS_DIR}/bootfs/"* "${TARGET_DIR}/bootfs/"
     sudo cp -ru "${ROOTFS_DIR}/rootfs/"* "${TARGET_DIR}/rootfs/"
     
@@ -373,6 +364,7 @@ EOF
 }
 
 clean_all() {
+    cd "${SHELL_FOLDER}"
     log_step "Cleaning all build artifacts"
     rm -rf "${OUTPUT_DIR}"
     cd "${QEMU_DIR}" && if [ -d build ]; then rm -rf build; fi
@@ -412,13 +404,11 @@ if [ ! -d "${OUTPUT_DIR}" ]; then
     mkdir -p "${OUTPUT_DIR}"
 fi
 
-# Argument Parsing
 TARGET=$1
 if [ -z "$TARGET" ]; then
     TARGET="all"
 fi
 
-# 明确判断第2个参数，默认为 incremental
 if [ -z "$2" ]; then
     BUILD_MODE="incremental"
 elif [ "$2" == "clean" ]; then

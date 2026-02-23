@@ -53,6 +53,7 @@ static const MemMapEntry quard_star_memmap[] = {
     /* virtio,设备占用的地址空间为 0x1000=4k，这里从virtio0开始连续划分8个virtio的地址 */
     [QUARD_STAR_VIRTIO0]     = { 0x10100000,     0x1000 },
     [QUARD_STAR_FW_CFG] = { 0x10108000,          0x18 },
+    
     [QUARD_STAR_FLASH]       = { 0x20000000,     0x2000000 },   
     [QUARD_STAR_DRAM]        = { 0x80000000,    0x40000000 },   
 };

@@ -1,0 +1,104 @@
+<svg width="1000" height="1804" xmlns="http://www.w3.org/2000/svg">
+<style>
+.title { font-family: Arial; font-size: 14px; font-weight: bold; fill: black; }
+.text { font-family: Arial; font-size: 12px; fill: black; }
+.subtext { font-family: Arial; font-size: 10px; fill: #555; }
+</style>
+<rect x="50" y="862.0" width="200" height="80" rx="5" ry="5" fill="#E0E0E0" stroke="#333" stroke-width="1"/>
+<text x="60" y="882.0" class="title">/ (Root)</text>
+<text x="60" y="898.0" class="subtext">riscv-quard-star</text>
+<text x="60" y="910.0" class="subtext">#address-cells: 2</text>
+<path d="M 250 902.0 C 300 902.0 300 94.0 350 94.0" fill="none" stroke="#666" stroke-width="1" />
+<rect x="350" y="50" width="220" height="88" rx="5" ry="5" fill="#C8E6C9" stroke="#333" stroke-width="1"/>
+<text x="360" y="70" class="title">memory@80000000</text>
+<text x="360" y="86" class="subtext">reg: 0x80000000</text>
+<text x="360" y="98" class="subtext">size: 1GB</text>
+<path d="M 250 902.0 C 300 902.0 300 194.0 350 194.0" fill="none" stroke="#666" stroke-width="1" />
+<rect x="350" y="158" width="220" height="72" rx="5" ry="5" fill="#B3E5FC" stroke="#333" stroke-width="1"/>
+<text x="360" y="178" class="title">fw-cfg@10108000</text>
+<text x="360" y="194" class="subtext">qemu,fw-cfg-mmio</text>
+<path d="M 250 902.0 C 300 902.0 300 643.0 350 643.0" fill="none" stroke="#666" stroke-width="1" />
+<rect x="350" y="250" width="280" height="786" rx="5" ry="5" fill="#F5F5F5" stroke="#999" stroke-width="1"/>
+<text x="360" y="270" class="title">cpus</text>
+<text x="360" y="286" class="subtext">timebase: 10MHz</text>
+<rect x="380" y="290" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="310" class="title">cpu@0</text>
+<text x="390" y="326" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="295" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="307" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="382" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="402" class="title">cpu@1</text>
+<text x="390" y="418" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="387" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="399" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="474" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="494" class="title">cpu@2</text>
+<text x="390" y="510" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="479" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="491" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="566" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="586" class="title">cpu@3</text>
+<text x="390" y="602" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="571" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="583" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="658" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="678" class="title">cpu@4</text>
+<text x="390" y="694" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="663" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="675" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="750" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="770" class="title">cpu@5</text>
+<text x="390" y="786" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="755" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="767" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="842" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="862" class="title">cpu@6</text>
+<text x="390" y="878" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="847" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="859" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<rect x="380" y="934" width="220" height="72" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="390" y="954" class="title">cpu@7</text>
+<text x="390" y="970" class="subtext">rv64imafdcsu</text>
+<rect x="540" y="939" width="40" height="18" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="545" y="951" class="subtext" style="font-size:9px;fill:black">IntC</text>
+<path d="M 250 902.0 C 300 902.0 300 1405.0 350 1405.0" fill="none" stroke="#666" stroke-width="1" />
+<rect x="350" y="1056" width="280" height="698" rx="5" ry="5" fill="#E3F2FD" stroke="#999" stroke-width="1"/>
+<text x="360" y="1076" class="title">soc</text>
+<text x="360" y="1092" class="subtext">simple-bus</text>
+<rect x="380" y="1096" width="220" height="88" rx="5" ry="5" fill="#B3E5FC" stroke="#333" stroke-width="1"/>
+<text x="390" y="1116" class="title">uart0@10000000</text>
+<text x="390" y="1132" class="subtext">ns16550a</text>
+<text x="390" y="1144" class="subtext">irq: 10</text>
+<rect x="380" y="1204" width="220" height="88" rx="5" ry="5" fill="#B3E5FC" stroke="#333" stroke-width="1"/>
+<text x="390" y="1224" class="title">uart1@10001000</text>
+<text x="390" y="1240" class="subtext">ns16550a</text>
+<text x="390" y="1252" class="subtext">irq: 11</text>
+<rect x="380" y="1312" width="220" height="88" rx="5" ry="5" fill="#B3E5FC" stroke="#333" stroke-width="1"/>
+<text x="390" y="1332" class="title">uart2@10002000</text>
+<text x="390" y="1348" class="subtext">ns16550a</text>
+<text x="390" y="1360" class="subtext">irq: 12</text>
+<rect x="380" y="1420" width="220" height="88" rx="5" ry="5" fill="#B3E5FC" stroke="#333" stroke-width="1"/>
+<text x="390" y="1440" class="title">virtio_mmio (x8)</text>
+<text x="390" y="1456" class="subtext">reg: 10100000..10107000</text>
+<text x="390" y="1468" class="subtext">irq: 1..8</text>
+<rect x="380" y="1528" width="220" height="88" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="390" y="1548" class="title">plic@c000000</text>
+<text x="390" y="1564" class="subtext">riscv,plic0</text>
+<text x="390" y="1576" class="subtext">Global Int Controller</text>
+<rect x="380" y="1636" width="220" height="88" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="390" y="1656" class="title">clint@2000000</text>
+<text x="390" y="1672" class="subtext">riscv,clint0</text>
+<text x="390" y="1684" class="subtext">Timer / Soft Int</text>
+<rect x="50" y="1764" width="120" height="30" rx="5" ry="5" fill="#E0E0E0" stroke="#333" stroke-width="1"/>
+<text x="60" y="1784" class="text">Root</text>
+<rect x="180" y="1764" width="120" height="30" rx="5" ry="5" fill="#C8E6C9" stroke="#333" stroke-width="1"/>
+<text x="190" y="1784" class="text">Memory</text>
+<rect x="310" y="1764" width="120" height="30" rx="5" ry="5" fill="#FFCDD2" stroke="#333" stroke-width="1"/>
+<text x="320" y="1784" class="text">CPU</text>
+<rect x="440" y="1764" width="120" height="30" rx="5" ry="5" fill="#B3E5FC" stroke="#333" stroke-width="1"/>
+<text x="450" y="1784" class="text">Peripheral</text>
+<rect x="570" y="1764" width="120" height="30" rx="5" ry="5" fill="#FFF9C4" stroke="#333" stroke-width="1"/>
+<text x="580" y="1784" class="text">Interrupt</text>
+<rect x="700" y="1764" width="120" height="30" rx="5" ry="5" fill="#E3F2FD" stroke="#333" stroke-width="1"/>
+<text x="710" y="1784" class="text">Container</text>
+</svg>
