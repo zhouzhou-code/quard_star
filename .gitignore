@@ -7,3 +7,12 @@ opensbi-0.9
 *.mapqemu-8.0.2.tar.xz
 .trae
 .vscode
+
+*.ko
+*.o
+*.ok.
+*.symvers
+*.cmd
+*.cmd*
+*.order
+*.mod*

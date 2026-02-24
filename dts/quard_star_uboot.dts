@@ -27,6 +27,11 @@
             no-map;
             reg = <0x0 0xbff80000 0x0 0x00080000>;
         };
+
+        amp_ipc_shm: amp_ipc_shm@bf8008fb00 {
+            no-map; /* 关键：告诉Linux内核不要触碰这里 */
+            reg = <0x0 0xbf800000 0x0 0x1000>; /* 4KB 大小 */
+        };
     };
 
 };

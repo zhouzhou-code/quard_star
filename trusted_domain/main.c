@@ -8,6 +8,8 @@
 #include "task.h"
 #include <stdio.h>
 #include "riscv_sbi.h"
+#include <string.h>
+#include "FreeRTOS.h"
 
 void sbi_print_string(const char *str)
 {
@@ -28,6 +30,51 @@ static void prvTask2( void *pvParameters );
 
 /* Global counter for debug */
 volatile uint64_t g_counter = 0;
+
+// 物理地址，必须和 Linux 设备树里的完全一致
+#define AMP_SHM_BASE_ADDR 0xbf700000 
+
+// 共享内存数据结构
+struct amp_mailbox {
+    volatile uint32_t f2l_flag;  // Offset 0x00
+    char payload[256];           // Offset 0x04
+} __attribute__((packed));
+
+// 直接把物理地址强转为结构体指针
+#define MAILBOX ((struct amp_mailbox *)AMP_SHM_BASE_ADDR)
+
+// 定义 FreeRTOS 发送任务
+void vIPCSendTask(void *pvParameters)
+{
+    uint32_t counter = 0;
+    char temp_str[100];
+
+    // 初始化：确保最开始标志位是 0
+    MAILBOX->f2l_flag = 0;
+
+    while(1) {
+        // 等待 Linux 读完 (只有标志位被 Linux 清 0，我们才发下一条)
+        if (MAILBOX->f2l_flag == 0) {
+            
+            // 1. 准备字符串数据
+            snprintf(temp_str, sizeof(temp_str), "Hello Linux! I'm FreeRTOS, MSG ID: %d", counter++);
+            
+            // 2. 拷贝数据到共享内存的 payload 区
+            strncpy((char *)MAILBOX->payload, temp_str, 255);
+            MAILBOX->payload[255] = '\0'; // 保底防止越界
+            
+            // 3. 【面试绝杀点】内存屏障！确保数据真正落入 DDR 后，再去改标志位
+            __asm__ volatile("fence rw, rw" ::: "memory");
+            
+            // 4. 竖起 Flag，触发 Linux 侧的轮询
+            MAILBOX->f2l_flag = 1;
+        }
+        
+        // 延时 1000 个 Tick (通常是 1 秒)，每秒发一次
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 
 int main( void )
 {
@@ -50,6 +97,9 @@ int main( void )
                  NULL,                  
                  TASK2_PRIORITY,            
                  NULL );                
+
+    /* ipc 发送任务 */
+    xTaskCreate(vIPCSendTask, "IPC_Tx", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     sbi_print_string(">>> Starting Scheduler...\n");
 

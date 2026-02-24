@@ -129,6 +129,9 @@ SECTIONS
 
         . = ALIGN(8);
         __bss_end = .;    /* 清零循环终点 */
+        /* 增加下面这两行，给 C 标准库的 _sbrk 函数指路 */
+        PROVIDE( end = . );
+        PROVIDE( _end = . );
     } >ram AT>rom
 
    /* 
