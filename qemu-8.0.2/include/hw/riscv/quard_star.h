@@ -5,6 +5,7 @@
 #include "hw/sysbus.h"
 #include "qom/object.h"
 #include "hw/block/flash.h"
+#include "hw/riscv/quard_star_mailbox.h"
 
 #define QUARD_STAR_CPUS_MAX 8
 #define QUARD_STAR_SOCKETS_MAX 8
@@ -23,6 +24,7 @@ struct QuardStarState {
     PFlashCFI01 *flash;
     DeviceState *plic[QUARD_STAR_SOCKETS_MAX]; //8个plic?连到8个hart上
     FWCfgState *fw_cfg;
+    QuardStarMailboxState *mailbox; // Mailbox device for AMP IPC
 };
 
 enum {
@@ -30,6 +32,7 @@ enum {
     QUARD_STAR_SRAM,
     QUARD_STAR_CLINT,
     QUARD_STAR_PLIC,
+    QUARD_STAR_MAILBOX,      /* Mailbox for AMP IPC */
     QUARD_STAR_UART0,
     QUARD_STAR_UART1,
     QUARD_STAR_UART2,
@@ -43,6 +46,8 @@ enum {
 enum {
     QUARD_STAR_VIRTIO_IRQ_BASE = 1, //定义第一个Virtio设备的中断号为1，其他Virtio设备的中断号依次递增(1 to 8)
     QUARD_STAR_VIRTIO_COUNT = 8,//定义了Virtio设备的数量为8
+    QUARD_STAR_MAILBOX_IRQ_LINUX = 50,  /* Mailbox interrupt to Linux (Hart 1-7) */
+    QUARD_STAR_MAILBOX_IRQ_RTOS = 51,   /* Mailbox interrupt to FreeRTOS (Hart 0) */
     QUARD_STAR_UART0_IRQ = 10,  //定义了串口中断号为10
     QUARD_STAR_UART1_IRQ = 11,
     QUARD_STAR_UART2_IRQ = 12,

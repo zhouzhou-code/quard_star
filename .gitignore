@@ -16,3 +16,4 @@ opensbi-0.9
 *.cmd*
 *.order
 *.mod*
+sysroot/

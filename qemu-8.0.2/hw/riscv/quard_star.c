@@ -12,6 +12,7 @@
 
 #include "hw/riscv/riscv_hart.h"
 #include "hw/riscv/quard_star.h"
+#include "hw/riscv/quard_star_mailbox.h"
 #include "hw/riscv/boot.h"
 #include "hw/riscv/numa.h"
 #include "hw/intc/riscv_aclint.h"
@@ -44,7 +45,9 @@ static const MemMapEntry quard_star_memmap[] = {
     [QUARD_STAR_CLINT]       = { 0x02000000,       0x10000 },
     /* plic 平台级中断控制器处理外设中断 */
     [QUARD_STAR_PLIC]        = { 0x0c000000,      0x210000 },
-    
+    /* mailbox 用于 AMP 异构多核通信 */
+    [QUARD_STAR_MAILBOX]     = { 0x10004000,       0x1000 },
+
     [QUARD_STAR_UART0]       = { 0x10000000,        0x1000 },
     [QUARD_STAR_UART1]       = { 0x10001000,        0x1000 },
     [QUARD_STAR_UART2]       = { 0x10002000,        0x1000 },
@@ -247,10 +250,44 @@ static void quard_star_serial_create(MachineState *machine)
 
 /* 创建 RTC */
 static void quard_star_rtc_create(MachineState *machine)
-{    
+{
     QuardStarState *s = RISCV_VIRT_MACHINE(machine);
     sysbus_create_simple("goldfish_rtc", quard_star_memmap[QUARD_STAR_RTC].base,
         qdev_get_gpio_in(DEVICE(s->plic[0]), QUARD_STAR_RTC_IRQ));
+}
+
+/* 创建 Mailbox (AMP IPC) */
+static void quard_star_mailbox_create(MachineState *machine)
+{
+    QuardStarState *s = RISCV_VIRT_MACHINE(machine);
+    DeviceState *dev;
+    SysBusDevice *sbd;
+
+    /* 创建 Mailbox 设备 */
+    dev = qdev_new(TYPE_QUARD_STAR_MAILBOX_DEVICE);
+    sbd = SYS_BUS_DEVICE(dev);
+
+    /* 初始化设备 */
+    sysbus_realize_and_unref(sbd, &error_fatal);
+
+    /* 映射 MMIO 空间 */
+    memory_region_add_subregion(get_system_memory(),
+                                quard_star_memmap[QUARD_STAR_MAILBOX].base,
+                                sysbus_mmio_get_region(sbd, 0));
+
+    /* 连接中断线到 PLIC
+     * irq_linux -> PLIC input 50 (Linux/Hart 1-7)
+     * irq_rtos  -> PLIC input 51 (FreeRTOS/Hart 0)
+     */
+    sysbus_connect_irq(sbd, 0,
+                       qdev_get_gpio_in_named(DEVICE(s->plic[0]), NULL,
+                                              QUARD_STAR_MAILBOX_IRQ_LINUX));
+    sysbus_connect_irq(sbd, 1,
+                       qdev_get_gpio_in_named(DEVICE(s->plic[0]), NULL,
+                                              QUARD_STAR_MAILBOX_IRQ_RTOS));
+
+    /* 保存设备状态指针 */
+    s->mailbox = QUARD_STAR_MAILBOX_DEVICE(dev);
 }
 
 /* 创建virtio */
@@ -307,7 +344,9 @@ static void quard_star_machine_init(MachineState *machine)
     quard_star_serial_create(machine);
     // 创建 RTC
     quard_star_rtc_create(machine);
-    // 创建 virtio 
+    // 创建 Mailbox (AMP IPC)
+    quard_star_mailbox_create(machine);
+    // 创建 virtio
     quard_star_virtio_mmio_create(machine);
 }
 

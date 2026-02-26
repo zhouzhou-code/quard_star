@@ -279,5 +279,17 @@
             reg = <0x0 0x2000000 0x0 0x10000>;
             compatible = "riscv,clint0";
         };
+
+        /* Mailbox for AMP IPC (FreeRTOS ↔ Linux) */
+        mailbox: mailbox@10004000 {
+            compatible = "quard-star,mailbox";
+            reg = <0x0 0x10004000 0x0 0x1000>;
+            /* IRQ 50 → Linux (Hart 1-7), IRQ 51 → FreeRTOS (Hart 0) */
+            interrupts = <0x32 0x33>;
+            interrupt-parent = <0x11>;
+            #interrupt-cells = <0x1>;
+            interrupt-controller;
+            status = "okay";
+        };
     };
 };

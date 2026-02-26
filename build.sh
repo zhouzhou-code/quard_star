@@ -27,6 +27,8 @@ BUSYBOX_DIR="${SHELL_FOLDER}/busybox-1.36.1"
 FREERTOS_DIR="${SHELL_FOLDER}/trusted_domain"
 DTS_DIR="${SHELL_FOLDER}/dts"
 BUSYBOX_ROOT_SCRIPT="${SHELL_FOLDER}/busybox_root_script"
+LINUX_DRIVER_DIR="${SHELL_FOLDER}/linux_driver"
+SYSROOT_DIR="${SHELL_FOLDER}/sysroot"
 
 # 采用patch方式管理linux kernel (杜绝 ../ 相对路径，全部换成绝对路径)
 KERNEL_VER="v6.10" #v6.10 v5.10
@@ -245,7 +247,7 @@ build_freertos() {
     cd "${SHELL_FOLDER}"
     log_step "Building FreeRTOS (Trusted Domain)"
     check_dir "${OUTPUT_DIR}/trusted_domain"
-    
+
     cd "${FREERTOS_DIR}"
     if [ "${BUILD_MODE}" == "clean" ]; then
         make clean
@@ -253,11 +255,43 @@ build_freertos() {
     elif [ "${BUILD_MODE}" == "rebuild" ]; then
         make clean
     fi
-    
+
     make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
-    
+
     cp "${FREERTOS_DIR}/build/trusted_fw.bin" "${OUTPUT_DIR}/trusted_domain/"
     cp "${FREERTOS_DIR}/build/trusted_fw.elf" "${OUTPUT_DIR}/trusted_domain/"
+}
+
+build_driver() {
+    cd "${SHELL_FOLDER}"
+    log_step "Building Linux Drivers"
+    check_dir "${OUTPUT_DIR}/linux_driver"
+
+    # 遍历 linux_driver 下的所有子目录（包含 Makefile 的）
+    for driver_dir in "${LINUX_DRIVER_DIR}"/*/; do
+        if [ -f "${driver_dir}/Makefile" ]; then
+            driver_name=$(basename "${driver_dir}")
+            log_info "Building driver: ${driver_name}"
+
+            cd "${driver_dir}"
+
+            if [ "${BUILD_MODE}" == "clean" ]; then
+                make clean KERNELDIR="${KERNEL_DIR}" CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-"
+            elif [ "${BUILD_MODE}" == "rebuild" ]; then
+                make clean KERNELDIR="${KERNEL_DIR}" CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-"
+            fi
+
+            # 编译
+            make KERNELDIR="${KERNEL_DIR}" CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-"
+
+            # 拷贝编译产物到 output/linux_driver/
+            cp build/*.ko "${OUTPUT_DIR}/linux_driver/" 2>/dev/null || true
+
+            cd "${SHELL_FOLDER}"
+        fi
+    done
+
+    log_info "Driver modules built in ${OUTPUT_DIR}/linux_driver/"
 }
 
 pack_firmware() {
@@ -282,7 +316,7 @@ pack_firmware() {
 build_rootfs() {
     cd "${SHELL_FOLDER}"
     log_step "Building Root Filesystem Image"
-        
+
     if [ "$(id -u)" != "0" ]; then
         log_info "需要 root 权限来生成根文件系统，请稍后输入密码..."
         if ! sudo -v; then
@@ -295,24 +329,36 @@ build_rootfs() {
     check_dir "${ROOTFS_DIR}"
     check_dir "${ROOTFS_DIR}/rootfs"
     check_dir "${ROOTFS_DIR}/bootfs"
-    
+
     IMG_FILE="${ROOTFS_DIR}/rootfs.img"
-    
+
     if [ "${BUILD_MODE}" == "clean" ]; then
         rm -f "${IMG_FILE}"
         return 0
     elif [ "${BUILD_MODE}" == "rebuild" ]; then
         rm -f "${IMG_FILE}"
     fi
-    
-    # 临时目录同步文件
-    cp "${OUTPUT_DIR}/linux_kernel/Image" "${ROOTFS_DIR}/bootfs/Image"
-    cp "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" "${ROOTFS_DIR}/bootfs/quard_star.dtb"
+
+    # 1. 拷贝 busybox 安装结果
     cp -r "${OUTPUT_DIR}/busybox/"* "${ROOTFS_DIR}/rootfs/"
+
+    # 2. 拷贝 busybox 配置脚本
     if [ -d "${BUSYBOX_ROOT_SCRIPT}" ]; then
         cp -r "${BUSYBOX_ROOT_SCRIPT}/"* "${ROOTFS_DIR}/rootfs/"
     fi
-    
+
+    # 3. 拷贝驱动模块到 rootfs/driver/
+    mkdir -p "${ROOTFS_DIR}/rootfs/driver"
+    if [ -d "${OUTPUT_DIR}/linux_driver" ] && [ "$(ls -A ${OUTPUT_DIR}/linux_driver/*.ko 2>/dev/null)" ]; then
+        cp -r "${OUTPUT_DIR}/linux_driver/"*.ko "${ROOTFS_DIR}/rootfs/driver/"
+        log_info "Copied $(ls ${OUTPUT_DIR}/linux_driver/*.ko 2>/dev/null | wc -l) driver module(s) to rootfs"
+    fi
+
+    # 4. 拷贝内核和 DTB 到 bootfs
+    cp "${OUTPUT_DIR}/linux_kernel/Image" "${ROOTFS_DIR}/bootfs/Image"
+    cp "${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" "${ROOTFS_DIR}/bootfs/quard_star.dtb"
+
+    # 5. 生成 U-Boot 启动脚本
     "${UBOOT_DIR}/tools/mkimage" -A riscv -O linux -T script -C none -a 0 -e 0 -n "Distro Boot Script" -d "${DTS_DIR}/quard_star_uboot.cmd" "${ROOTFS_DIR}/bootfs/boot.scr"
     
     local FORMAT_NEEDED=0
@@ -359,8 +405,14 @@ EOF
     sudo umount "${TARGET_DIR}/bootfs" || true
     sudo umount "${TARGET_DIR}/rootfs" || true
     sudo losetup -d "${LOOP_DEV}"
-    
-    log_info "Rootfs image generated/updated at ${IMG_FILE}"
+
+    # 拷贝完整 rootfs 到 sysroot，供应用层开发和调试使用
+    log_info "Copying complete rootfs to sysroot for application development..."
+    rm -rf "${SYSROOT_DIR}"
+    cp -r "${ROOTFS_DIR}/rootfs" "${SYSROOT_DIR}"
+
+    log_info "Rootfs image: ${IMG_FILE}"
+    log_info "Complete rootfs (for app dev): ${SYSROOT_DIR}/"
 }
 
 clean_all() {
@@ -387,6 +439,7 @@ usage() {
     echo "  kernel     Build Linux Kernel"
     echo "  busybox    Build BusyBox"
     echo "  freertos   Build FreeRTOS (Trusted Domain)"
+    echo "  driver     Build Linux Drivers (out-of-tree)"
     echo "  rootfs     Build Root Filesystem Image"
     echo "  firmware   Pack Firmware (fw.bin)"
     echo ""
@@ -432,6 +485,7 @@ case "$TARGET" in
         build_uboot
         build_kernel
         build_busybox
+        build_driver
         pack_firmware
         build_rootfs
         ;;
@@ -464,6 +518,9 @@ case "$TARGET" in
     "freertos")
         build_freertos
         pack_firmware
+        ;;
+    "driver")
+        build_driver
         ;;
     "rootfs")
         build_rootfs
