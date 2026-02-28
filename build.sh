@@ -30,6 +30,27 @@ BUSYBOX_ROOT_SCRIPT="${SHELL_FOLDER}/busybox_root_script"
 LINUX_DRIVER_DIR="${SHELL_FOLDER}/linux_driver"
 SYSROOT_DIR="${SHELL_FOLDER}/sysroot"
 
+# OpenAMP Paths (新增)
+THIRD_PARTY_DIR="${SHELL_FOLDER}/third_party"
+LIBMETAL_DIR="${THIRD_PARTY_DIR}/libmetal"
+OPENAMP_DIR="${THIRD_PARTY_DIR}/open-amp"
+FREERTOS_APP_DIR="${SHELL_FOLDER}/freertos_app"
+OPENAMP_ADAPTER_DIR="${FREERTOS_APP_DIR}/openamp_adapter"
+BSP_INCLUDE_DIR="${SHELL_FOLDER}/bsp_include"
+
+# FreeRTOS/裸机编译选项（用于 OpenAMP 适配层）
+CFLAGS_FREERTOS="-march=rv64imafdcv -mabi=lp64d -mcmodel=medany \
+                 -ffunction-sections -fdata-sections \
+                 -Wall -Wextra \
+                 -I${OPENAMP_ADAPTER_DIR}/include \
+                 -I${BSP_INCLUDE_DIR} \
+                 -I${LIBMETAL_DIR}/lib/include \
+                 -I${OPENAMP_DIR}/lib/include \
+                 -I${FREERTOS_DIR} \
+                 -I${FREERTOS_DIR}/FreeRTOS-Kernel-v10.4.3/include \
+                 -I${FREERTOS_DIR}/FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V \
+                 -DFREERTOS -O2 -g"
+
 # 采用patch方式管理linux kernel (杜绝 ../ 相对路径，全部换成绝对路径)
 KERNEL_VER="v6.10" #v6.10 v5.10
 PATCH_FILE="${SHELL_FOLDER}/linux_mypatches/quard_star_linux_${KERNEL_VER}.patch"
@@ -213,6 +234,18 @@ build_kernel() {
     fi
 
     make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
+
+    # 复制编译产物到 output 目录
+    log_info "Copying kernel Image to output directory..."
+    mkdir -p "${OUTPUT_DIR}/linux_kernel"
+    cp arch/riscv/boot/Image "${OUTPUT_DIR}/linux_kernel/Image"
+    if [ -f "arch/riscv/boot/Image.gz" ]; then
+        cp arch/riscv/boot/Image.gz "${OUTPUT_DIR}/linux_kernel/Image.gz"
+    fi
+    if [ -f "vmlinux" ]; then
+        cp vmlinux "${OUTPUT_DIR}/linux_kernel/vmlinux"
+    fi
+    log_info "Kernel Image copied to ${OUTPUT_DIR}/linux_kernel/Image"
 }
 
 build_busybox() {
@@ -262,6 +295,234 @@ build_freertos() {
     cp "${FREERTOS_DIR}/build/trusted_fw.elf" "${OUTPUT_DIR}/trusted_domain/"
 }
 
+# ==============================================================================
+# OpenAMP Build Functions (新增)
+# ==============================================================================
+
+setup_submodules() {
+    cd "${SHELL_FOLDER}"
+    log_step "Initializing Git Submodules"
+
+    # 检查是否已经通过 git clone 获取了代码
+    if [ -d "${LIBMETAL_DIR}/.git" ] && [ -d "${OPENAMP_DIR}/.git" ]; then
+        log_info "Git repositories already present"
+        return 0
+    fi
+
+    # 检查是否有 tar.gz 文件（手动下载）
+    if [ -f "${THIRD_PARTY_DIR}/libmetal-1.25.0.tar.gz" ] && \
+       [ -f "${THIRD_PARTY_DIR}/open-amp-1.25.0.tar.gz" ]; then
+        log_info "Found tar.gz files, extracting..."
+        cd "${THIRD_PARTY_DIR}"
+        tar xf libmetal-1.25.0.tar.gz
+        [ -d libmetal-1.25.0 ] && mv libmetal-1.25.0 libmetal
+        tar xf open-amp-1.25.0.tar.gz
+        [ -d open-amp-1.25.0 ] && mv open-amp-1.25.0 open-amp
+        cd "${SHELL_FOLDER}"
+        log_info "Extraction complete"
+        return 0
+    fi
+
+    # 添加 submodules（如果不存在）
+    if [ ! -d "${LIBMETAL_DIR}" ]; then
+        log_info "Adding libmetal submodule..."
+        git submodule add https://github.com/OpenAMP/libmetal.git "${LIBMETAL_DIR}"
+    fi
+
+    if [ ! -d "${OPENAMP_DIR}" ]; then
+        log_info "Adding open-amp submodule..."
+        git submodule add https://github.com/OpenAMP/open-amp.git "${OPENAMP_DIR}"
+    fi
+
+    # 更新 submodules
+    git submodule update --init --recursive
+
+    log_info "Submodules initialized successfully (libmetal v$(cat ${LIBMETAL_DIR}/VERSION | grep VERSION_MINOR | cut -d= -f2 | tr -d ' ').$(cat ${LIBMETAL_DIR}/VERSION | grep VERSION_PATCH | cut -d= -f2 | tr -d ' '), open-amp v$(cat ${OPENAMP_DIR}/VERSION | grep VERSION_MINOR | cut -d= -f2 | tr -d ' ').$(cat ${OPENAMP_DIR}/VERSION | grep VERSION_PATCH | cut -d= -f2 | tr -d ' '))"
+}
+
+build_libmetal() {
+    cd "${SHELL_FOLDER}"
+    log_step "Building libmetal"
+    check_dir "${OUTPUT_DIR}/libmetal"
+
+    # 确保 submodule 已初始化
+    if [ ! -d "${LIBMETAL_DIR}/.git" ]; then
+        log_error "libmetal submodule not initialized. Run: $0 submodules"
+        exit 1
+    fi
+
+    cd "${LIBMETAL_DIR}"
+
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        rm -rf build
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        rm -rf build
+    fi
+
+    # 创建构建目录
+    mkdir -p build
+    cd build
+
+    # 设置编译器路径
+    export PATH="/opt/gcc-riscv64-unknown-elf/bin:$PATH"
+
+    # 使用 CMake 构建（FreeRTOS 配置）
+    # 注意：暂时不编译 FreeRTOS system 层，等后续移植
+    cmake .. \
+        -DCMAKE_TOOLCHAIN_FILE=../cmake/platforms/cross-generic-gcc.cmake \
+        -DCROSS_PREFIX=riscv64-unknown-elf- \
+        -DCMAKE_INSTALL_PREFIX="$(pwd)/../lib" \
+        -DCMAKE_C_FLAGS="-I${SHELL_FOLDER}/${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DMETAL_BUILD_SHARED_LIBS=OFF \
+        -DWITH_FREERTOS_LIB=OFF
+
+    make -j"${JOBS}"
+    make install
+
+    log_info "libmetal built: ${LIBMETAL_DIR}/lib/libmetal.a"
+}
+
+build_openamp_lib() {
+    cd "${SHELL_FOLDER}"
+    log_step "Building open-amp library"
+    check_dir "${OUTPUT_DIR}/openamp"
+
+    # 确保 libmetal 已构建
+    if [ ! -f "${LIBMETAL_DIR}/lib/libmetal.a" ]; then
+        log_info "libmetal not found, building it first..."
+        build_libmetal
+    fi
+
+    # 确保 submodule 已初始化
+    if [ ! -d "${OPENAMP_DIR}/.git" ]; then
+        log_error "open-amp submodule not initialized. Run: $0 submodules"
+        exit 1
+    fi
+
+    cd "${OPENAMP_DIR}"
+
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        rm -rf cmake/build
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        rm -rf cmake/build
+    fi
+
+    # 创建构建目录
+    mkdir -p cmake/build
+    cd cmake/build
+
+    # 设置编译器路径
+    export PATH="/opt/gcc-riscv64-unknown-elf/bin:$PATH"
+
+    # 使用 CMake 构建 - 使用 libmetal 的 generic 工具链
+    cmake ../.. \
+        -DCMAKE_TOOLCHAIN_FILE=${LIBMETAL_DIR}/cmake/platforms/cross-generic-gcc.cmake \
+        -DCROSS_PREFIX=riscv64-unknown-elf- \
+        -DCMAKE_INSTALL_PREFIX="${OPENAMP_DIR}/lib" \
+        -DCMAKE_C_FLAGS="-I${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -I${LIBMETAL_DIR}/lib/include -DFREERTOS" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_FIND_ROOT_PATH="${LIBMETAL_DIR}/lib" \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+        -DWITH_LIBMETAL_FIND=OFF
+
+    make -j"${JOBS}"
+
+    log_info "open-amp built: ${OPENAMP_DIR}/cmake/build/libopenamp.a"
+}
+
+build_openamp_adapter() {
+    cd "${SHELL_FOLDER}"
+    log_step "Building OpenAMP Adapter Layer"
+    check_dir "${OUTPUT_DIR}/openamp_adapter"
+
+    # 确保依赖库已构建
+    if [ ! -f "${LIBMETAL_DIR}/lib/libmetal.a" ]; then
+        log_info "libmetal not found, building it first..."
+        build_libmetal
+    fi
+
+    if [ ! -f "${OPENAMP_DIR}/cmake/build/libopenamp.a" ]; then
+        log_info "open-amp not found, building it first..."
+        build_openamp_lib
+    fi
+
+    cd "${FREERTOS_APP_DIR}"
+
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make clean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make clean
+    fi
+
+    # 构建 OpenAMP 适配层（编译 libmetal 和 openamp 适配代码）
+    log_info "Compiling OpenAMP adapter layer..."
+
+    # 创建输出目录
+    mkdir -p build/openamp_adapter/libmetal
+    mkdir -p build/openamp_adapter/openamp
+    mkdir -p lib
+
+    # 编译 libmetal 适配层
+    for src in openamp_adapter/libmetal/*.c; do
+        if [ -f "$src" ]; then
+            obj="build/$(basename "$src" .c).o"
+            log_info "Compiling $src"
+            ${NEWLIB_ELF_CROSS_PREFIX}-gcc ${CFLAGS_FREERTOS} -c "$src" -o "$obj"
+        fi
+    done
+
+    # 编译 openamp 适配层
+    for src in openamp_adapter/openamp/*.c; do
+        if [ -f "$src" ]; then
+            obj="build/$(basename "$src" .c).o"
+            log_info "Compiling $src"
+            ${NEWLIB_ELF_CROSS_PREFIX}-gcc ${CFLAGS_FREERTOS} -c "$src" -o "$obj"
+        fi
+    done
+
+    # 打包成静态库
+    ${NEWLIB_ELF_CROSS_PREFIX}-ar rcs lib/libopenamp_adapter.a build/*.o 2>/dev/null || true
+
+    log_info "OpenAMP adapter built: ${FREERTOS_APP_DIR}/lib/libopenamp_adapter.a"
+}
+
+build_freertos_app() {
+    cd "${SHELL_FOLDER}"
+    log_step "Building FreeRTOS Application with OpenAMP"
+    check_dir "${OUTPUT_DIR}/freertos_app"
+
+    # 确保所有依赖已构建
+    if [ ! -f "${FREERTOS_APP_DIR}/lib/libopenamp_adapter.a" ]; then
+        log_info "OpenAMP adapter not found, building it first..."
+        build_openamp_adapter
+    fi
+
+    cd "${FREERTOS_APP_DIR}"
+
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        make clean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        make clean
+    fi
+
+    # 使用 freertos_app 的 Makefile
+    make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
+
+    # 拷贝输出
+    cp build/freertos_app.elf "${OUTPUT_DIR}/freertos_app/" 2>/dev/null || true
+    cp build/freertos_app.bin "${OUTPUT_DIR}/freertos_app/" 2>/dev/null || true
+
+    log_info "FreeRTOS application built: ${OUTPUT_DIR}/freertos_app/"
+}
+
 build_driver() {
     cd "${SHELL_FOLDER}"
     log_step "Building Linux Drivers"
@@ -285,7 +546,8 @@ build_driver() {
             make KERNELDIR="${KERNEL_DIR}" CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-"
 
             # 拷贝编译产物到 output/linux_driver/
-            cp build/*.ko "${OUTPUT_DIR}/linux_driver/" 2>/dev/null || true
+            # 支持两种情况：.ko 在当前目录或在 build/ 子目录
+            find . -name "*.ko" -exec cp {} "${OUTPUT_DIR}/linux_driver/" \; 2>/dev/null || true
 
             cd "${SHELL_FOLDER}"
         fi
@@ -430,18 +692,25 @@ clean_all() {
 usage() {
     echo "Usage: $0 [target] [mode]"
     echo "Targets:"
-    echo "  all        Build everything (default)"
-    echo "  clean      Clean all build artifacts and source directories"
-    echo "  qemu       Build QEMU"
-    echo "  boot       Build LowLevelBoot"
-    echo "  opensbi    Build OpenSBI"
-    echo "  uboot      Build U-Boot"
-    echo "  kernel     Build Linux Kernel"
-    echo "  busybox    Build BusyBox"
-    echo "  freertos   Build FreeRTOS (Trusted Domain)"
-    echo "  driver     Build Linux Drivers (out-of-tree)"
-    echo "  rootfs     Build Root Filesystem Image"
-    echo "  firmware   Pack Firmware (fw.bin)"
+    echo "  all             Build everything (default)"
+    echo "  clean           Clean all build artifacts and source directories"
+    echo "  qemu            Build QEMU"
+    echo "  boot            Build LowLevelBoot"
+    echo "  opensbi         Build OpenSBI"
+    echo "  uboot           Build U-Boot"
+    echo "  kernel          Build Linux Kernel"
+    echo "  busybox         Build BusyBox"
+    echo "  freertos        Build FreeRTOS (Trusted Domain)"
+    echo "  freertos-app    Build FreeRTOS Application with OpenAMP"
+    echo "  driver          Build Linux Drivers (out-of-tree)"
+    echo "  rootfs          Build Root Filesystem Image"
+    echo "  firmware        Pack Firmware (fw.bin)"
+    echo ""
+    echo "  OpenAMP-specific targets:"
+    echo "  submodules      Initialize Git submodules (libmetal, open-amp)"
+    echo "  libmetal        Build libmetal library"
+    echo "  openamp         Build open-amp library"
+    echo "  openamp-adapter Build OpenAMP adapter layer"
     echo ""
     echo "Modes:"
     echo "  incremental (default)  Build only changed files"
@@ -519,6 +788,9 @@ case "$TARGET" in
         build_freertos
         pack_firmware
         ;;
+    "freertos-app")
+        build_freertos_app
+        ;;
     "driver")
         build_driver
         ;;
@@ -527,6 +799,19 @@ case "$TARGET" in
         ;;
     "firmware")
         pack_firmware
+        ;;
+    # OpenAMP 相关目标
+    "submodules")
+        setup_submodules
+        ;;
+    "libmetal")
+        build_libmetal
+        ;;
+    "openamp")
+        build_openamp_lib
+        ;;
+    "openamp-adapter")
+        build_openamp_adapter
         ;;
     "help"|*)
         usage

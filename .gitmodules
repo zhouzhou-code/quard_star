@@ -1,0 +1,3 @@
+[submodule "/home/zms/quard_star/third_party/libmetal"]
+	path = /home/zms/quard_star/third_party/libmetal
+	url = https://github.com/OpenAMP/libmetal.git

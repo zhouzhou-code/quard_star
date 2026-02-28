@@ -9,6 +9,8 @@ MEMORY
     rom (rxa) : ORIGIN = 0xBF800000, LENGTH = 1M
     /* RAM: 存放运行时的变量、BSS、堆、栈 */
     ram (wxa) : ORIGIN = 0xBF900000, LENGTH = 6M
+    /* 共享内存区域：0xbf700000 - 0xbf800000 (1MB) */
+    /* 注意：这个区域是 FreeRTOS 和 Linux 之间的共享内存 */
 }
 
 SECTIONS
@@ -113,9 +115,21 @@ SECTIONS
         __data_end = .;   /* RAM中的目的地终点 */
     } >ram AT>rom
 
-    /* 
-     * 未初始化数据段 (.bss)
+    /*
+     * 共享内存段 - 放置 Resource Table 供 Linux 访问
+     * 必须放在 0xbf70c000
      */
+    .resource_table (NOLOAD) :
+    {
+        . = ALIGN(8);
+        __resource_table_start = .;
+
+        *(.resource_table)
+
+        . = ALIGN(8);
+        __resource_table_end = .;
+    } >ram AT>rom
+
     .bss (NOLOAD) :
     {
         . = ALIGN(8);

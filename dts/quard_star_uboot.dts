@@ -11,27 +11,42 @@
         bootargs = "root=/dev/vda2 rw console=ttyS0";
         stdout-path = "/soc/uart0@10000000";
     };
-    reserved-memory {
+
+    reserved_memory: reserved-memory {
         #address-cells = <0x2>;
         #size-cells = <0x2>;
         ranges;
 
-        /* 保护 FreeRTOS 的运行空间和sbi_dts (0xBF800000 到 0xBFF80000) */
+        /* 1. 保护 FreeRTOS 的运行空间 (Hart 7) */
         freertos_mem: freertos_region@bf800000 {
-            no-map; /* 核心指令：严禁 Linux 为其建立页表映射 */
-            reg = <0x0 0xbf800000 0x0 0x00780000>; 
+            no-map;
+            reg = <0x0 0xbf800000 0x0 0x00780000>;
         };
 
-        /* 保护 OpenSBI 的固件空间 (0xBFF80000 往上) */
+        /* 2. 保护 OpenSBI 的固件空间 */
         opensbi_mem: opensbi_region@bff80000 {
             no-map;
             reg = <0x0 0xbff80000 0x0 0x00080000>;
         };
 
-        amp_ipc_shm: amp_ipc_shm@bf8008fb00 {
-            no-map; /* 关键：告诉Linux内核不要触碰这里 */
-            reg = <0x0 0xbf800000 0x0 0x1000>; /* 4KB 大小 */
+        /* 3. 保护 OpenAMP 的共享内存与资源表 */
+        /* 地址: 0xbf700000, 大小: 0x20000 (128KB) */
+        /* 把大平层圈好就行，内部的 vring 和 rsc_table 交给代码里的宏去定位 */
+        amp_shm: amp_shared_region@bf700000 {
+            no-map;
+            reg = <0x0 0xbf700000 0x0 0x00020000>;
         };
     };
 
+    /* Remoteproc for FreeRTOS Domain (Hart 7) */
+    rproc0: rproc@bf700000 {
+        compatible = "quard-star,rproc";
+        reg = <0x0 0xbf700000 0x0 0x20000>;
+        /* 引用上面定义好的共享内存 */
+        memory-region = <&amp_shm>;
+        /* Mailbox IRQ 50 for notifications from FreeRTOS (Hart 7) */
+        interrupts = <0x32>;
+        interrupt-parent = <0x11>;
+        status = "okay";
+    };
 };

@@ -1,170 +1,238 @@
 /*
- * FreeRTOS V10.4.3 Example for RISC-V S-Mode
- * 包含双任务 SBI 打印测试
+ * FreeRTOS 应用主入口
+ *
+ * Copyright (c) 2025 Quard Star Project
+ *
+ * 本文件是 FreeRTOS 应用的主入口，负责：
+ *   1. 初始化 Resource Table
+ *   2. 初始化 libmetal
+ *   3. 初始化 OpenAMP/RPMsg
+ *   4. 启动 RPMsg 服务器
+ *   5. 启动 FreeRTOS 调度器
  */
 
-/* FreeRTOS includes. */
 #include "FreeRTOS.h"
 #include "task.h"
-#include <stdio.h>
-#include "riscv_sbi.h"
-#include <string.h>
-#include "FreeRTOS.h"
 
+#include "uart8250.h"
+#include "hwspecs.h"
+#include "resource_table.h"
+
+/* OpenAMP 适配层 */
+#include "openamp_adapter.h"
+
+/* ============================================================================
+ * 宏定义
+ * ============================================================================ */
+
+#define MAIN_TASK_PRIORITY      (tskIDLE_PRIORITY + 1)
+#define MAIN_TASK_STACK_SIZE    2048
+
+/* ============================================================================
+ * UART 输出函数
+ * ============================================================================ */
+
+/**
+ * sbi_print_string() - 打印字符串（使用 UART）
+ * 为了兼容性保留此函数名
+ */
 void sbi_print_string(const char *str)
 {
-    /* 逐个字符塞给 OpenSBI，注意加上 \r 防止串口输出变阶梯状 */
-    while (*str) {
-        if (*str == '\n') {
-            sbi_console_putchar('\r');
-        }
-        sbi_console_putchar(*str++);
+    uart8250_puts(str);
+}
+
+/**
+ * 早期测试函数 - UART 16550 驱动测试
+ */
+static void test_uart16550_driver(void)
+{
+    sbi_print_string("\r\n");
+    sbi_print_string("========================================\r\n");
+    sbi_print_string("UART 16550 Driver Test\r\n");
+    sbi_print_string("========================================\r\n");
+    sbi_print_string("Driver ported from OpenSBI\r\n");
+    sbi_print_string("Base address: 0x10000000 (UART0)\r\n");
+    sbi_print_string("Baudrate: 115200\r\n");
+    sbi_print_string("Config: 8N1 (8 data, no parity, 1 stop)\r\n");
+    sbi_print_string("========================================\r\n");
+    sbi_print_string("\r\n");
+
+    /* 测试 1: 字符输出 */
+    sbi_print_string("[Test 1] Character output:\r\n");
+    uart8250_putc('H');
+    uart8250_putc('e');
+    uart8250_putc('l');
+    uart8250_putc('l');
+    uart8250_putc('o');
+    uart8250_putc(' ');
+    uart8250_putc('W');
+    uart8250_putc('o');
+    uart8250_putc('r');
+    uart8250_putc('l');
+    uart8250_putc('d');
+    uart8250_putc('!');
+    uart8250_putc('\r');
+    uart8250_putc('\n');
+    sbi_print_string("\r\n");
+
+    /* 测试 2: 字符串输出 */
+    sbi_print_string("[Test 2] String output:\r\n");
+    uart8250_puts("Testing string output...\r\n");
+    uart8250_puts("Line 1\r\n");
+    uart8250_puts("Line 2\r\n");
+    uart8250_puts("Line 3\r\n");
+    sbi_print_string("\r\n");
+
+    /* 测试 3: 格式化输出（通过简单拼接）*/
+    sbi_print_string("[Test 3] Formatted output:\r\n");
+    sbi_print_string("Hart ID: ");
+    sbi_print_string("7");
+    sbi_print_string("\r\n");
+    sbi_print_string("Domain: FreeRTOS\r\n");
+    sbi_print_string("\r\n");
+
+    sbi_print_string("========================================\r\n");
+    sbi_print_string("UART 16550 Driver Test PASSED!\r\n");
+    sbi_print_string("========================================\r\n");
+    sbi_print_string("\r\n");
+}
+
+/* ============================================================================
+ * FreeRTOS 钩子函数
+ * ============================================================================ */
+
+/**
+ * vApplicationStackOverflowHook() - 栈溢出钩子
+ */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    (void)xTask;
+    (void)pcTaskName;
+    sbi_print_string("ERROR: Stack overflow detected!\r\n");
+    while (1) {
+        /* 停止执行 */
     }
 }
 
-#define TASK1_PRIORITY    ( tskIDLE_PRIORITY + 1 )
-#define TASK2_PRIORITY    ( tskIDLE_PRIORITY + 1 )
-
-static void prvTask1( void *pvParameters );
-static void prvTask2( void *pvParameters );
-
-/* Global counter for debug */
-volatile uint64_t g_counter = 0;
-
-// 物理地址，必须和 Linux 设备树里的完全一致
-#define AMP_SHM_BASE_ADDR 0xbf700000 
-
-// 共享内存数据结构
-struct amp_mailbox {
-    volatile uint32_t f2l_flag;  // Offset 0x00
-    char payload[256];           // Offset 0x04
-} __attribute__((packed));
-
-// 直接把物理地址强转为结构体指针
-#define MAILBOX ((struct amp_mailbox *)AMP_SHM_BASE_ADDR)
-
-// 定义 FreeRTOS 发送任务
-void vIPCSendTask(void *pvParameters)
+/**
+ * vApplicationMallocFailedHook() - 内存分配失败钩子
+ */
+void vApplicationMallocFailedHook(void)
 {
-    uint32_t counter = 0;
-    char temp_str[100];
+    sbi_print_string("ERROR: Malloc failed!\r\n");
+    while (1) {
+        /* 停止执行 */
+    }
+}
 
-    // 初始化：确保最开始标志位是 0
-    MAILBOX->f2l_flag = 0;
+/* ============================================================================
+ * 外部函数声明
+ * ============================================================================ */
 
-    while(1) {
-        // 等待 Linux 读完 (只有标志位被 Linux 清 0，我们才发下一条)
-        if (MAILBOX->f2l_flag == 0) {
-            
-            // 1. 准备字符串数据
-            snprintf(temp_str, sizeof(temp_str), "Hello Linux! I'm FreeRTOS, MSG ID: %d", counter++);
-            
-            // 2. 拷贝数据到共享内存的 payload 区
-            strncpy((char *)MAILBOX->payload, temp_str, 255);
-            MAILBOX->payload[255] = '\0'; // 保底防止越界
-            
-            // 3. 【面试绝杀点】内存屏障！确保数据真正落入 DDR 后，再去改标志位
-            __asm__ volatile("fence rw, rw" ::: "memory");
-            
-            // 4. 竖起 Flag，触发 Linux 侧的轮询
-            MAILBOX->f2l_flag = 1;
-        }
-        
-        // 延时 1000 个 Tick (通常是 1 秒)，每秒发一次
+extern int rpmsg_server_init(void);
+extern int rpmsg_server_start(void);
+
+/* ============================================================================
+ * 主任务
+ * ============================================================================ */
+
+/**
+ * main_task() - 主任务
+ * @pvParameters: 任务参数（未使用）
+ *
+ * 执行流程：
+ *   1. 初始化 Resource Table（写入共享内存）
+ *   2. 初始化 OpenAMP（libmetal + RPMsg）
+ *   3. 启动 RPMsg 服务器
+ */
+static void main_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    uart8250_puts("\r\n");
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("Quard Star FreeRTOS with OpenAMP\r\n");
+    uart8250_puts("Copyright (c) 2025 Quard Star Project\r\n");
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("Hart: 7 (FreeRTOS Domain)\r\n");
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("\r\n");
+
+    /* === Step 1: 初始化 Resource Table === */
+    uart8250_puts("[Step 1] Initializing Resource Table...\r\n");
+
+    resource_table_init();
+
+    uart8250_puts("Resource Table initialized\r\n");
+    uart8250_puts("\r\n");
+
+    /* TODO: Step 2 & 3 - RPMsg initialization (temporarily disabled) */
+    uart8250_puts("RPMsg initialization temporarily disabled\r\n");
+
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("FreeRTOS Resource Table Ready!\r\n");
+    uart8250_puts("Waiting for Linux to attach...\r\n");
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("\r\n");
+
+    /* 主循环：保持运行 */
+    while (1) {
+        uart8250_puts("Task main is running... Hart 7\r\n");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+
+    /* 不会到达这里 */
+    vTaskDelete(NULL);
 }
 
+/* ============================================================================
+ * 主函数
+ * ============================================================================ */
 
-int main( void )
+int main(void)
 {
-    sbi_print_string("\n========================================\n");
-    sbi_print_string("🚀 FreeRTOS is Booting on RISC-V S-Mode!\n");
-    sbi_print_string("========================================\n");
+    BaseType_t ret;
 
-    /* 创建测试任务 1 (稍微给大点栈，防止字符串压栈导致溢出) */
-    xTaskCreate( prvTask1,                  
-                 "Task_1",                  
-                 configMINIMAL_STACK_SIZE * 2, 
-                 NULL,                  
-                 TASK1_PRIORITY,            
-                 NULL );                
+    /* 初始化 UART（必须在最前面）- 使用移植的 16550 驱动 */
+    uart8250_init(UART_BASE, UART_CLK_FREQ, UART_BAUDRATE);
 
-    /* 创建测试任务 2 */
-    xTaskCreate( prvTask2,                  
-                 "Task_2",                  
-                 configMINIMAL_STACK_SIZE * 2, 
-                 NULL,                  
-                 TASK2_PRIORITY,            
-                 NULL );                
+    
 
-    /* ipc 发送任务 */
-    xTaskCreate(vIPCSendTask, "IPC_Tx", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
+    uart8250_puts("\r\n========================================\r\n");
 
-    sbi_print_string(">>> Starting Scheduler...\n");
+     uart8250_puts("Quard Star FreeRTOS with OpenAMP\r\n");
+        uart8250_puts("Booting...\r\n");
+        uart8250_puts("========================================\r\n");
+   
 
-    /* 启动调度器：此时会接管 SysTick，并跳转到最高优先级的任务 */
+    /* 测试 UART 16550 驱动 */
+    test_uart16550_driver();
+
+    /* 写一个魔数到共享内存，证明 FreeRTOS 正在运行 */
+    /* 0x46524545 = "FREE" in ASCII, + 0x07 = Hart 7 signature */
+    *(volatile uint32_t *)0xbf700000 = 0x46524545;  /* "FREE" in ASCII */
+    *(volatile uint32_t *)0xbf700004 = 0x00000007;  /* Hart 7 */
+    uart8250_puts("Magic signature written to 0xbf70000\r\n");
+
+    /* 创建主任务 */
+    ret = xTaskCreate(main_task,
+                      "Main",
+                      MAIN_TASK_STACK_SIZE,
+                      NULL,
+                      MAIN_TASK_PRIORITY,
+                      NULL);
+
+    if (ret != pdPASS) {
+        uart8250_puts("ERROR: Failed to create main task!\r\n");
+        return -1;
+    }
+
+    /* 启动调度器 */
+    uart8250_puts("Starting FreeRTOS scheduler...\r\n");
+    
     vTaskStartScheduler();
 
-    /* 正常情况下永远不会执行到这里。如果到了这里，说明内存堆 (Heap) 不够了 */
-    //sbi_print_string("🚨 ERROR: Insufficient Heap Memory!\n");
-    for( ;; );
-    return 0;
-}
-
-/* ====================================================================
- * 4. 任务 1 实现
- * ==================================================================== */
-static void prvTask1( void *pvParameters )
-{
-    ( void ) pvParameters;
-
-    for( ;; )
-    {
-        /* 打印自己正在运行 */
-        // sbi_print_string("[Task 1] is running! Beep...\n");
-        g_counter++;
-
-        /* 阻塞延时 1000 毫秒，交出 CPU 控制权 */
-        vTaskDelay( pdMS_TO_TICKS( 4000 ) );
-    }
-}
-
-/* ====================================================================
- * 5. 任务 2 实现
- * ==================================================================== */
-static void prvTask2( void *pvParameters )
-{
-    ( void ) pvParameters;
-
-    for( ;; )
-    {
-        /* 打印自己正在运行 */
-        // sbi_print_string("[Task 2] is running! Boop...\n");
-
-        /* 阻塞延时 1500 毫秒 (时间错开，验证多任务并行) */
-        vTaskDelay( pdMS_TO_TICKS( 8000 ) );
-    }
-}
-
-/* ====================================================================
- * 6. FreeRTOS 异常钩子函数 (Hooks)
- * ==================================================================== */
-void vApplicationMallocFailedHook( void )
-{
-    /* 内存分配失败钩子：疯狂打印报错并死机 */
-    taskDISABLE_INTERRUPTS();
-    // sbi_print_string("\n🚨 FATAL: Malloc Failed Hook Triggered!\n");
-    for( ;; );
-}
-
-void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName )
-{
-    ( void ) pxTask;
-    /* 栈溢出钩子：把溢出的任务名字打出来，极其方便查 Bug */
-    taskDISABLE_INTERRUPTS();
-    sbi_print_string("\n🚨 FATAL: Stack Overflow in Task: ");
-    sbi_print_string(pcTaskName);
-    sbi_print_string("\n");
-    for( ;; );
+    /* 不应该到达这里 */
+    uart8250_puts("ERROR: Scheduler returned!\r\n");
+    return -1;
 }

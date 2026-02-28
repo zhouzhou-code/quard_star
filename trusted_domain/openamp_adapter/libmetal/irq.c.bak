@@ -1,0 +1,294 @@
+/*
+ * libmetal FreeRTOS IRQ 接口实现
+ *
+ * Copyright (c) 2025 Quard Star Project
+ *
+ * 本文件实现 libmetal 在 FreeRTOS 上的 IRQ 接口
+ * 主要处理 Mailbox PLIC IRQ 51 (Linux → FreeRTOS)
+ * 参考：libmetal/lib/system/generic/irq.c
+ */
+
+#include "metal/irq.h"
+#include "metal/irq_controller.h"
+#include "metal/device.h"
+#include "metal/log.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "hwspecs.h"
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+/* ============================================================================
+ * PLIC (Platform-Level Interrupt Controller) 定义
+ * ============================================================================ */
+
+/**
+ * PLIC 寄存器定义
+ * 基于 RISC-V PLIC 规范
+ */
+#define PLIC_HART0_PRIORITY_OFFSET   0x0
+#define PLIC_HART0_ENABLE_OFFSET     0x2000
+#define PLIC_HART0_CONTEXT_OFFSET    0x200000
+
+/**
+ * PLIC 寄存器操作宏
+ */
+#define PLIC_REG(offset)            (*(volatile uint32_t *)((uintptr_t)g_plic_base + (offset)))
+
+/* ============================================================================
+ * Mailbox 寄存器定义
+ * ============================================================================ */
+
+#define MAILBOX_REG(reg, offset)     (*(volatile uint32_t *)((reg) + (offset)))
+
+/* ============================================================================
+ * IRQ 描述符
+ * ============================================================================ */
+
+struct metal_irq_desc {
+    int irq_num;
+    metal_irq_handler handler;
+    void *arg;
+    struct metal_irq_desc *next;
+};
+
+/* ============================================================================
+ * 全局状态
+ * ============================================================================ */
+
+static struct metal_irq_desc *g_irq_handlers[1024];  /* 最多 1024 个 IRQ */
+static volatile uint32_t *g_plic_base = (volatile uint32_t *)PLIC_BASE;
+
+/* ============================================================================
+ * PLIC 初始化
+ * ============================================================================ */
+
+/**
+ * 初始化 PLIC 控制器
+ */
+static int plic_irq_controller_init(void)
+{
+    /* PLIC 基地址已由硬件定义 */
+    metal_log(METAL_LOG_INFO, "PLIC initialized at %p\n", g_plic_base);
+
+    return 0;
+}
+
+/* ============================================================================
+ * IRQ 控制器操作
+ * ============================================================================ */
+
+/**
+ * 使能 IRQ
+ */
+static void plic_irq_enable(int irq_id)
+{
+    uint32_t *enable_reg;
+    uint32_t reg_offset, bit_offset;
+
+    if (irq_id < 0 || irq_id >= 1024) {
+        return;
+    }
+
+    /* 计算 enable 寄存器偏移 */
+    reg_offset = (irq_id / 32) * 4;
+    bit_offset = irq_id % 32;
+
+    enable_reg = (uint32_t *)((uintptr_t)g_plic_base + PLIC_HART0_ENABLE_OFFSET + reg_offset);
+
+    /* 设置对应位 */
+    *enable_reg |= (1U << bit_offset);
+
+    metal_log(METAL_LOG_DEBUG, "IRQ %d enabled\n", irq_id);
+}
+
+/**
+ * 禁用 IRQ
+ */
+static void plic_irq_disable(int irq_id)
+{
+    uint32_t *enable_reg;
+    uint32_t reg_offset, bit_offset;
+
+    if (irq_id < 0 || irq_id >= 1024) {
+        return;
+    }
+
+    /* 计算 enable 寄存器偏移 */
+    reg_offset = (irq_id / 32) * 4;
+    bit_offset = irq_id % 32;
+
+    enable_reg = (uint32_t *)((uintptr_t)g_plic_base + PLIC_HART0_ENABLE_OFFSET + reg_offset);
+
+    /* 清除对应位 */
+    *enable_reg &= ~(1U << bit_offset);
+
+    metal_log(METAL_LOG_DEBUG, "IRQ %d disabled\n", irq_id);
+}
+
+/* ============================================================================
+ * libmetal IRQ API
+ * ============================================================================ */
+
+/**
+ * 注册 IRQ 处理器
+ */
+int metal_irq_register(int irq_id,
+                      metal_irq_handler handler,
+                      void *arg)
+{
+    struct metal_irq_desc *desc;
+
+    if (irq_id < 0 || irq_id >= 1024) {
+        return -EINVAL;
+    }
+
+    if (!g_plic_base) {
+        plic_irq_controller_init();
+    }
+
+    /* 处理注销 (handler = NULL) */
+    if (!handler) {
+        struct metal_irq_desc *prev = NULL;
+        desc = g_irq_handlers[irq_id];
+
+        while (desc) {
+            struct metal_irq_desc *next = desc->next;
+
+            if (desc->arg == arg || !arg) {
+                /* 移除这个描述符 */
+                if (prev) {
+                    prev->next = next;
+                } else {
+                    g_irq_handlers[irq_id] = next;
+                }
+                vPortFree(desc);
+            } else {
+                prev = desc;
+            }
+            desc = next;
+        }
+
+        /* 如果没有处理器了，禁用 IRQ */
+        if (!g_irq_handlers[irq_id]) {
+            plic_irq_disable(irq_id);
+        }
+
+        return 0;
+    }
+
+    /* 分配 IRQ 描述符 */
+    desc = (struct metal_irq_desc *)pvPortMalloc(sizeof(struct metal_irq_desc));
+    if (!desc) {
+        return -ENOMEM;
+    }
+
+    desc->irq_num = irq_id;
+    desc->handler = handler;
+    desc->arg = arg;
+    desc->next = NULL;
+
+    /* 添加到处理链 */
+    if (g_irq_handlers[irq_id] == NULL) {
+        g_irq_handlers[irq_id] = desc;
+    } else {
+        struct metal_irq_desc *tail = g_irq_handlers[irq_id];
+        while (tail->next) {
+            tail = tail->next;
+        }
+        tail->next = desc;
+    }
+
+    /* 使能 IRQ */
+    plic_irq_enable(irq_id);
+
+    metal_log(METAL_LOG_INFO, "IRQ handler registered: IRQ %d\n", irq_id);
+
+    return 0;
+}
+
+/* ============================================================================
+ * IRQ 中断处理入口
+ * ============================================================================ */
+
+/**
+ * Mailbox IRQ 处理入口
+ *
+ * 由 FreeRTOS 的 ISR 调用 (在 FreeRTOS 的 trap.c 中)
+ *
+ * 流程：
+ * 1. 读取 claim 寄存器获取 IRQ 号
+ * 2. 调用注册的处理函数
+ * 3. 写 complete 寄存器
+ */
+void freertos_metal_irq_handler(unsigned int mcause)
+{
+    int irq_id;
+    struct metal_irq_desc *desc;
+
+    /* PLIC IRQ 的 mcause 位 31 设置 */
+    if (!(mcause & 0x80000000)) {
+        /* 不是外部中断 */
+        return;
+    }
+
+    irq_id = mcause & 0x7FFFFFFF;
+
+    if (irq_id < 0 || irq_id >= 1024) {
+        return;
+    }
+
+    /* 调用所有注册的处理器 */
+    desc = g_irq_handlers[irq_id];
+    while (desc) {
+        if (desc->handler) {
+            desc->handler(irq_id, desc->arg);
+        }
+        desc = desc->next;
+    }
+}
+
+/* ============================================================================
+ * Mailbox 特定操作
+ * ============================================================================ */
+
+/**
+ * 触发到 Linux 的 Mailbox 中断
+ *
+ * 写入 MAILBOX_REG_RTOS_TRIG 寄存器触发 IRQ 50
+ */
+void metal_mailbox_notify(void)
+{
+    volatile uint32_t *mailbox_base = (volatile uint32_t *)MAILBOX_BASE_ADDR;
+
+    /* 触发中断到 Linux */
+    MAILBOX_REG(mailbox_base, REG_RTOS_TRIG) = 1;
+
+    /* RISC-V 内存屏障，确保写操作完成 */
+    asm volatile("fence ow,ow" ::: "memory");
+}
+
+/**
+ * 清除来自 Linux 的 Mailbox 中断
+ *
+ * 写入 MAILBOX_REG_LINUX_ACK 寄存器清除 IRQ 51
+ */
+void metal_mailbox_clear(void)
+{
+    volatile uint32_t *mailbox_base = (volatile uint32_t *)MAILBOX_BASE_ADDR;
+
+    /* 清除中断 */
+    MAILBOX_REG(mailbox_base, REG_RTOS_ACK) = 1;
+}
+
+/**
+ * 获取 Mailbox IRQ 编号
+ */
+int metal_mailbox_get_irq(void)
+{
+    return MAILBOX_IRQ_TO_RTOS;  /* IRQ 51 */
+}

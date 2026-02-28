@@ -25,15 +25,20 @@ LDSCRIPT  = link.lds
 # 只有被加进这里的文件夹，Makefile 才会去里面抓代码。
 # 后续写了驱动代码 (如 src/driver)，直接在下面追加即可。
 SRC_DIRS  = . \
+            driver \
+            riscv \
             FreeRTOS-Kernel-v10.4.3 \
-            FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V-S \
-            riscv
+            FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V-S
 
 # 【5. 头文件搜索路径 (-I)】
 INCLUDES  = $(foreach dir, $(SRC_DIRS), -I$(dir))
 INCLUDES += -I FreeRTOS-Kernel-v10.4.3/include
 INCLUDES += -I FreeRTOS-Kernel-v10.4.3/portable/MemMang
 INCLUDES += -I riscv/
+INCLUDES += -I openamp_adapter/include
+INCLUDES += -I bsp_include
+INCLUDES += -I ../freertos_app/openamp_adapter/include
+INCLUDES += -I ../freertos_app/openamp_adapter/include/metal
 
 
 # 【6. 自动抓取食材 (匹配源码)】
@@ -72,8 +77,13 @@ LDFLAGS += -nostartfiles
 LDFLAGS += -Wl,--gc-sections
 # 生成 Map 地址表：排查内存越界、查崩溃地址的神器
 LDFLAGS += -Wl,-Map=$(TARGET).map
-# LDFLAGS += --specs=nano.specs 
+# LDFLAGS += --specs=nano.specs
 LDFLAGS += --specs=nosys.specs
+
+# OpenAMP 适配层库（暂时禁用，因为依赖太复杂）
+# OPENAMP_ADAPTER_LIB = ../freertos_app/lib/libopenamp_adapter.a
+# LDFLAGS += $(OPENAMP_ADAPTER_LIB)
+LIBS =
 
 # 【10. 伪目标定义】
 .PHONY: all clean dump size
@@ -86,7 +96,7 @@ all: $(TARGET).elf $(TARGET).bin dump size
 # 最终缝合 (ELF)
 $(TARGET).elf: $(OBJS) $(LDSCRIPT)
 	@echo "  LD      $@"
-	@$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $@
+	@$(CC) $(CFLAGS) $(OBJS) $(LIBS) $(LDFLAGS) -o $@
 
 # 提取纯二进制烧录文件 (BIN)
 $(TARGET).bin: $(TARGET).elf
