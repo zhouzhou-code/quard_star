@@ -30,6 +30,10 @@ SRC_DIRS  = . \
             FreeRTOS-Kernel-v10.4.3 \
             FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V-S
 
+# Simple RPMsg 额外源文件
+# (已经在当前目录，会被 SRC_DIRS 自动包含，无需额外添加)
+# SRCS_C_EXTRA = simple_rpmsg.c
+
 # 【5. 头文件搜索路径 (-I)】
 INCLUDES  = $(foreach dir, $(SRC_DIRS), -I$(dir))
 INCLUDES += -I FreeRTOS-Kernel-v10.4.3/include
@@ -45,6 +49,7 @@ INCLUDES += -I ../freertos_app/openamp_adapter/include/metal
 # 去白名单目录里，把所有的 .c、.S(手写汇编) 和 .s(编译生成的汇编) 全捞出来
 SRCS_C   = $(foreach dir, $(SRC_DIRS), $(wildcard $(dir)/*.c))
 SRCS_C  += FreeRTOS-Kernel-v10.4.3/portable/MemMang/heap_4.c
+# SRCS_C  += $(SRCS_C_EXTRA)  # 已经由 SRC_DIRS 自动包含
 SRCS_ASM = $(foreach dir, $(SRC_DIRS), $(wildcard $(dir)/*.S))
 SRCS_asm = $(foreach dir, $(SRC_DIRS), $(wildcard $(dir)/*.s))
 

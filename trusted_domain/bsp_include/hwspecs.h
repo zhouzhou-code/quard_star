@@ -36,11 +36,16 @@ extern "C" {
 #define SHM_SIZE                (128 * 1024)
 
 /* VirtIO/vring 配置 */
-#define VRING_SIZE              256     /* 每个 vring 的描述符数量 */
-#define VRING_ALIGN             4096    /* vring 对齐到页边界 */
-#define VRING0_SIZE             (8 * 1024)  /* vring0 占用 8KB */
-#define VRING1_SIZE             (8 * 1024)  /* vring1 占用 8KB */
-#define RPMSG_BUF_SIZE          (32 * 1024) /* rpmsg buffers 占用 32KB */
+/* ⚠️ 尝试 Gemini 的建议：使用 0xFFFFFFFF 让 Linux 动态分配 */
+#define VRING_SIZE              256      /* 恢复 256，满足 Linux 的需求 */
+#define VRING_ALIGN             4096     /* vring 对齐到页边界 */
+#define VRING0_SIZE             (8 * 1024)   /* vring0 占用 8KB */
+#define VRING1_SIZE             (8 * 1024)   /* vring1 占用 8KB */
+#define RPMSG_BUF_SIZE          (32 * 1024)  /* rpmsg buffers 占用 32KB */
+
+/* ⚠️ 关键修复：使用 0xFFFFFFFF 让 Linux 动态分配内存，避免 8KB 限制 */
+#define VRING0_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
+#define VRING1_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
 
 /* ============================================================================
  * UART 配置
@@ -57,15 +62,18 @@ extern "C" {
 
 /**
  * Resource Table 在共享内存中的偏移
- * 地址 = SHM_BASE_ADDR + RESOURCE_TABLE_OFFSET = 0xbf70c000
+ * ⚠️ 修复：必须保持 0xc000，因为 Linux 驱动硬编码了这个地址！
  */
-#define RESOURCE_TABLE_OFFSET   0xc000
+#define RESOURCE_TABLE_OFFSET   0xc000  /* 48KB - Linux 期望的地址 */
 #define RESOURCE_TABLE_ADDR     (SHM_BASE_ADDR + RESOURCE_TABLE_OFFSET)
 #define RESOURCE_TABLE_SIZE     (4 * 1024)
 
-/* vring 物理地址（用于 Resource Table 填充） */
-#define VRING0_PA               0xbf700000  /* RX vring: FreeRTOS → Linux */
-#define VRING1_PA               0xbf702000  /* TX vring: Linux → FreeRTOS */
+/* ⚠️ 尝试 Gemini 的建议：使用 0xFFFFFFFF 让 Linux 动态分配 */
+/* 内存布局： */
+/* VRING0 和 VRING1 使用 0xFFFFFFFF，让 Linux 动态分配实际地址 */
+/* Resource Table 依然在 0xbf70c000 */
+#define VRING0_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
+#define VRING1_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
 
 /* ============================================================================
  * Mailbox 中断号映射 (Mailbox IRQ Mapping)

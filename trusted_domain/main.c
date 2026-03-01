@@ -18,8 +18,8 @@
 #include "hwspecs.h"
 #include "resource_table.h"
 
-/* OpenAMP 适配层 */
-#include "openamp_adapter.h"
+/* Simple RPMsg */
+#include "simple_rpmsg.h"
 
 /* ============================================================================
  * 宏定义
@@ -27,6 +27,36 @@
 
 #define MAIN_TASK_PRIORITY      (tskIDLE_PRIORITY + 1)
 #define MAIN_TASK_STACK_SIZE    2048
+
+/* ============================================================================
+ * RPMsg 测试
+ * ============================================================================ */
+
+static struct rpmsg_endpoint g_test_ept;
+
+/**
+ * RPMsg 消息接收回调
+ */
+static void rpmsg_rx_cb(struct rpmsg_endpoint *ept, void *data,
+                       size_t len, uint32_t src)
+{
+    const char *msg = (const char *)data;
+
+    uart8250_puts("\r\n[RPMsg RX] From ");
+    /* 简单打印 src 地址 */
+    if (src < 10) {
+        uart8250_putc('0' + src);
+    } else {
+        uart8250_puts("addr ");
+    }
+    uart8250_puts(": ");
+    uart8250_puts(msg);
+    uart8250_puts("\r\n");
+
+    /* 回显消息 */
+    simple_rpmsg_send(ept, "Echo from FreeRTOS: ", 21);
+    simple_rpmsg_send(ept, msg, len);
+}
 
 /* ============================================================================
  * UART 输出函数
@@ -131,6 +161,18 @@ void vApplicationMallocFailedHook(void)
 
 extern int rpmsg_server_init(void);
 extern int rpmsg_server_start(void);
+static void print_hex32(const char *label, uint32_t val) {
+    char buf[11];
+    int i;
+    buf[0] = '0'; buf[1] = 'x'; buf[10] = '\0';
+    for (i = 7; i >= 0; i--) {
+        uint8_t nibble = (val >> (i * 4)) & 0xF;
+        buf[9 - i] = nibble < 10 ? '0' + nibble : 'A' + (nibble - 10);
+    }
+    uart8250_puts(label);
+    uart8250_puts(buf);
+    uart8250_puts("\r\n");
+}
 
 /* ============================================================================
  * 主任务
@@ -166,18 +208,115 @@ static void main_task(void *pvParameters)
     uart8250_puts("Resource Table initialized\r\n");
     uart8250_puts("\r\n");
 
-    /* TODO: Step 2 & 3 - RPMsg initialization (temporarily disabled) */
-    uart8250_puts("RPMsg initialization temporarily disabled\r\n");
+    /* === Step 2: 初始化 Simple RPMsg 基础结构 === */
+    uart8250_puts("[Step 2] Initializing Simple RPMsg...\r\n");
+
+    if (simple_rpmsg_init() != 0) {
+        uart8250_puts("Failed to initialize RPMsg\r\n");
+        goto error;
+    }
+
+    uart8250_puts("RPMsg initialized\r\n");
+    uart8250_puts("\r\n");
+
+    /* === Step 2.5: 等待 Linux attach（避免 Race Condition）=== */
+    /* ⚠️ 必须在创建 endpoint 之前等待！*/
+    uart8250_puts("[Step 2.5] Waiting for Linux to attach (Virtio DRIVER_OK)...\r\n");
+
+    volatile struct shared_resource_table *rsc =
+        (volatile struct shared_resource_table *)RESOURCE_TABLE_ADDR;
+
+    uint32_t timeout_count = 0;
+    const uint32_t MAX_TIMEOUT = 60;  /* 最多等待 60 秒 */
+
+    while ((rsc->vdev.status & VIRTIO_CONFIG_S_DRIVER_OK) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(500));  /* 等待 500ms */
+        timeout_count++;
+
+        if (timeout_count >= (MAX_TIMEOUT * 2)) {  /* 500ms * 120 = 60s */
+            uart8250_puts("[WARNING] Timeout waiting for Linux!\r\n");
+            uart8250_puts("[DEBUG] vdev.status = 0x00 (NOT READY)\r\n");
+            break;
+        }
+
+        /* 每 5 秒打印一次等待信息 */
+        if (timeout_count % 10 == 0) {
+            uart8250_puts("[Step 2.5] Still waiting... (");
+            /* 简单的数字打印（只支持 0-9）*/
+            uint32_t sec = timeout_count / 2;
+            if (sec < 10) {
+                uart8250_putc('0' + sec);
+            } else {
+                uart8250_putc('0' + (sec / 10));
+                uart8250_putc('0' + (sec % 10));
+            }
+            uart8250_puts("s)\r\n");
+        }
+    }
+
+    if ((rsc->vdev.status & VIRTIO_CONFIG_S_DRIVER_OK) != 0) {
+        uart8250_puts("[Step 2.5] Linux attached! vdev.status = DRIVER_OK\r\n");
+        uart8250_puts("\r\n");
+    }
+
+    /* ======================================================== */
+    /* 🕵️ ⬇️ 架构师的终极探针：直接在这里加！⬇️ 🕵️ */
+    /* ======================================================== */
+    uart8250_puts("--- POST DRIVER_OK MEMORY DUMP ---\r\n");
+    
+    /* 打印 Linux 连上后，Resource Table 里的真实物理地址 */
+    print_hex32("RSC Vring0 DA : ", rsc->vring0.da);
+    print_hex32("RSC Vring1 DA : ", rsc->vring1.da);
+    
+    uart8250_puts("----------------------------------\r\n\r\n");
+    /* ======================================================== */
+    /* 🕵️ ⬆️ 探针结束 ⬆️ 🕵️ */
+    /* ======================================================== */
+    
+
+    /* === Step 3: 创建 RPMsg 端点（现在 Linux 已经准备好了）=== */
+    uart8250_puts("[Step 3] Creating RPMsg endpoint...\r\n");
+
+    if (simple_rpmsg_create_ept(&g_test_ept, "freertos-test",
+                                rpmsg_rx_cb, NULL) != 0) {
+        uart8250_puts("Failed to create endpoint\r\n");
+        goto error;
+    }
+
+    uart8250_puts("RPMsg endpoint created: freertos-test\r\n");
+    uart8250_puts("\r\n");
+
+    /* 现在可以安全地发送 NS 宣告包了 */
+    if (simple_rpmsg_announce_endpoint() != 0) {
+        uart8250_puts("Failed to announce endpoint\r\n");
+    }
 
     uart8250_puts("========================================\r\n");
     uart8250_puts("FreeRTOS Resource Table Ready!\r\n");
-    uart8250_puts("Waiting for Linux to attach...\r\n");
+    uart8250_puts("RPMsg Communication Active!\r\n");
     uart8250_puts("========================================\r\n");
     uart8250_puts("\r\n");
 
-    /* 主循环：保持运行 */
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("FreeRTOS Resource Table Ready!\r\n");
+    uart8250_puts("RPMsg Communication Active!\r\n");
+    uart8250_puts("========================================\r\n");
+    uart8250_puts("\r\n");
+
+    /* 主循环：保持运行并轮询 RPMsg */
     while (1) {
         uart8250_puts("Task main is running... Hart 7\r\n");
+
+        /* 轮询 RPMsg 消息 */
+        simple_rpmsg_poll();
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+error:
+    /* 永久停止 */
+    uart8250_puts("ERROR: System halted!\r\n");
+    while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 

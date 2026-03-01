@@ -25,6 +25,9 @@ extern "C" {
 #define VIRTIO_ID_RPMSG 7
 #define VIRTIO_RPMSG_F_NS 0
 
+/* Virtio 设备状态定义（用于同步）*/
+#define VIRTIO_CONFIG_S_DRIVER_OK   4  /* 驱动已就绪 */
+
 #pragma pack(push, 1)
 
 struct fw_rsc_vdev_vring {

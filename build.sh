@@ -34,9 +34,10 @@ SYSROOT_DIR="${SHELL_FOLDER}/sysroot"
 THIRD_PARTY_DIR="${SHELL_FOLDER}/third_party"
 LIBMETAL_DIR="${THIRD_PARTY_DIR}/libmetal"
 OPENAMP_DIR="${THIRD_PARTY_DIR}/open-amp"
-FREERTOS_APP_DIR="${SHELL_FOLDER}/freertos_app"
-OPENAMP_ADAPTER_DIR="${FREERTOS_APP_DIR}/openamp_adapter"
-BSP_INCLUDE_DIR="${SHELL_FOLDER}/bsp_include"
+# FREERTOS_APP_DIR 已经合并到 trusted_domain，使用新的路径
+TRUSTED_DOMAIN_DIR="${SHELL_FOLDER}/trusted_domain"
+OPENAMP_ADAPTER_DIR="${TRUSTED_DOMAIN_DIR}/openamp_adapter"
+BSP_INCLUDE_DIR="${TRUSTED_DOMAIN_DIR}/bsp_include"
 
 # FreeRTOS/裸机编译选项（用于 OpenAMP 适配层）
 CFLAGS_FREERTOS="-march=rv64imafdcv -mabi=lp64d -mcmodel=medany \
@@ -46,9 +47,9 @@ CFLAGS_FREERTOS="-march=rv64imafdcv -mabi=lp64d -mcmodel=medany \
                  -I${BSP_INCLUDE_DIR} \
                  -I${LIBMETAL_DIR}/lib/include \
                  -I${OPENAMP_DIR}/lib/include \
-                 -I${FREERTOS_DIR} \
-                 -I${FREERTOS_DIR}/FreeRTOS-Kernel-v10.4.3/include \
-                 -I${FREERTOS_DIR}/FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V \
+                 -I${TRUSTED_DOMAIN_DIR} \
+                 -I${TRUSTED_DOMAIN_DIR}/FreeRTOS-Kernel-v10.4.3/include \
+                 -I${TRUSTED_DOMAIN_DIR}/FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V \
                  -DFREERTOS -O2 -g"
 
 # 采用patch方式管理linux kernel (杜绝 ../ 相对路径，全部换成绝对路径)
@@ -281,7 +282,7 @@ build_freertos() {
     log_step "Building FreeRTOS (Trusted Domain)"
     check_dir "${OUTPUT_DIR}/trusted_domain"
 
-    cd "${FREERTOS_DIR}"
+    cd "${TRUSTED_DOMAIN_DIR}"
     if [ "${BUILD_MODE}" == "clean" ]; then
         make clean
         return 0
@@ -289,10 +290,21 @@ build_freertos() {
         make clean
     fi
 
-    make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
+    # 检查是否需要链接 OpenAMP 库
+    if [ -f "${LIBMETAL_DIR}/lib/libmetal.a" ] && [ -f "${OPENAMP_DIR}/cmake/build/libopenamp.a" ]; then
+        log_info "Building FreeRTOS with OpenAMP support..."
+        # 更新 Makefile 中的库路径
+        make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-" \
+             WITH_OPENAMP=1 \
+             LIBMETAL_LIB="${LIBMETAL_DIR}/lib/libmetal.a" \
+             OPENAMP_LIB="${OPENAMP_DIR}/cmake/build/libopenamp.a"
+    else
+        log_info "Building FreeRTOS without OpenAMP (libraries not found)..."
+        make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
+    fi
 
-    cp "${FREERTOS_DIR}/build/trusted_fw.bin" "${OUTPUT_DIR}/trusted_domain/"
-    cp "${FREERTOS_DIR}/build/trusted_fw.elf" "${OUTPUT_DIR}/trusted_domain/"
+    cp "${TRUSTED_DOMAIN_DIR}/build/trusted_fw.bin" "${OUTPUT_DIR}/trusted_domain/"
+    cp "${TRUSTED_DOMAIN_DIR}/build/trusted_fw.elf" "${OUTPUT_DIR}/trusted_domain/"
 }
 
 # ==============================================================================
@@ -372,12 +384,14 @@ build_libmetal() {
     cmake .. \
         -DCMAKE_TOOLCHAIN_FILE=../cmake/platforms/cross-generic-gcc.cmake \
         -DCROSS_PREFIX=riscv64-unknown-elf- \
+        -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
         -DCMAKE_INSTALL_PREFIX="$(pwd)/../lib" \
         -DCMAKE_C_FLAGS="-I${SHELL_FOLDER}/${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
         -DMETAL_BUILD_SHARED_LIBS=OFF \
-        -DWITH_FREERTOS_LIB=OFF
+        -DWITH_FREERTOS_LIB=OFF \
+        -DMETAL_MAX_DEVICE_REGIONS=1
 
     make -j"${JOBS}"
     make install
@@ -438,7 +452,7 @@ build_openamp_lib() {
 
 build_openamp_adapter() {
     cd "${SHELL_FOLDER}"
-    log_step "Building OpenAMP Adapter Layer"
+    log_step "Building OpenAMP Adapter Layer for FreeRTOS"
     check_dir "${OUTPUT_DIR}/openamp_adapter"
 
     # 确保依赖库已构建
@@ -452,17 +466,15 @@ build_openamp_adapter() {
         build_openamp_lib
     fi
 
-    cd "${FREERTOS_APP_DIR}"
+    # 编译 openamp_adapter 中的适配代码
+    cd "${TRUSTED_DOMAIN_DIR}"
 
     if [ "${BUILD_MODE}" == "clean" ]; then
-        make clean
+        rm -rf build/openamp_adapter
         return 0
     elif [ "${BUILD_MODE}" == "rebuild" ]; then
-        make clean
+        rm -rf build/openamp_adapter
     fi
-
-    # 构建 OpenAMP 适配层（编译 libmetal 和 openamp 适配代码）
-    log_info "Compiling OpenAMP adapter layer..."
 
     # 创建输出目录
     mkdir -p build/openamp_adapter/libmetal
@@ -470,57 +482,29 @@ build_openamp_adapter() {
     mkdir -p lib
 
     # 编译 libmetal 适配层
+    log_info "Compiling libmetal adapter layer..."
     for src in openamp_adapter/libmetal/*.c; do
         if [ -f "$src" ]; then
-            obj="build/$(basename "$src" .c).o"
+            obj="build/openamp_adapter/libmetal/$(basename "$src" .c).o"
             log_info "Compiling $src"
             ${NEWLIB_ELF_CROSS_PREFIX}-gcc ${CFLAGS_FREERTOS} -c "$src" -o "$obj"
         fi
     done
 
     # 编译 openamp 适配层
+    log_info "Compiling openamp adapter layer..."
     for src in openamp_adapter/openamp/*.c; do
         if [ -f "$src" ]; then
-            obj="build/$(basename "$src" .c).o"
+            obj="build/openamp_adapter/openamp/$(basename "$src" .c).o"
             log_info "Compiling $src"
             ${NEWLIB_ELF_CROSS_PREFIX}-gcc ${CFLAGS_FREERTOS} -c "$src" -o "$obj"
         fi
     done
 
     # 打包成静态库
-    ${NEWLIB_ELF_CROSS_PREFIX}-ar rcs lib/libopenamp_adapter.a build/*.o 2>/dev/null || true
+    ${NEWLIB_ELF_CROSS_PREFIX}-ar rcs lib/libopenamp_adapter.a build/openamp_adapter/*/*.o 2>/dev/null || true
 
-    log_info "OpenAMP adapter built: ${FREERTOS_APP_DIR}/lib/libopenamp_adapter.a"
-}
-
-build_freertos_app() {
-    cd "${SHELL_FOLDER}"
-    log_step "Building FreeRTOS Application with OpenAMP"
-    check_dir "${OUTPUT_DIR}/freertos_app"
-
-    # 确保所有依赖已构建
-    if [ ! -f "${FREERTOS_APP_DIR}/lib/libopenamp_adapter.a" ]; then
-        log_info "OpenAMP adapter not found, building it first..."
-        build_openamp_adapter
-    fi
-
-    cd "${FREERTOS_APP_DIR}"
-
-    if [ "${BUILD_MODE}" == "clean" ]; then
-        make clean
-        return 0
-    elif [ "${BUILD_MODE}" == "rebuild" ]; then
-        make clean
-    fi
-
-    # 使用 freertos_app 的 Makefile
-    make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
-
-    # 拷贝输出
-    cp build/freertos_app.elf "${OUTPUT_DIR}/freertos_app/" 2>/dev/null || true
-    cp build/freertos_app.bin "${OUTPUT_DIR}/freertos_app/" 2>/dev/null || true
-
-    log_info "FreeRTOS application built: ${OUTPUT_DIR}/freertos_app/"
+    log_info "OpenAMP adapter built: ${TRUSTED_DOMAIN_DIR}/lib/libopenamp_adapter.a"
 }
 
 build_driver() {
@@ -701,7 +685,6 @@ usage() {
     echo "  kernel          Build Linux Kernel"
     echo "  busybox         Build BusyBox"
     echo "  freertos        Build FreeRTOS (Trusted Domain)"
-    echo "  freertos-app    Build FreeRTOS Application with OpenAMP"
     echo "  driver          Build Linux Drivers (out-of-tree)"
     echo "  rootfs          Build Root Filesystem Image"
     echo "  firmware        Pack Firmware (fw.bin)"
@@ -710,7 +693,7 @@ usage() {
     echo "  submodules      Initialize Git submodules (libmetal, open-amp)"
     echo "  libmetal        Build libmetal library"
     echo "  openamp         Build open-amp library"
-    echo "  openamp-adapter Build OpenAMP adapter layer"
+    echo "  openamp-adapter Build OpenAMP adapter layer (trusted_domain)"
     echo ""
     echo "Modes:"
     echo "  incremental (default)  Build only changed files"
@@ -787,9 +770,6 @@ case "$TARGET" in
     "freertos")
         build_freertos
         pack_firmware
-        ;;
-    "freertos-app")
-        build_freertos_app
         ;;
     "driver")
         build_driver
