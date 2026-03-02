@@ -104,9 +104,15 @@ $(TARGET).elf: $(OBJS) $(LDSCRIPT)
 	@$(CC) $(CFLAGS) $(OBJS) $(LIBS) $(LDFLAGS) -o $@
 
 # 提取纯二进制烧录文件 (BIN)
+# 资源表单独导出，主固件剥离 .resource_table，避免二进制基址偏移
 $(TARGET).bin: $(TARGET).elf
 	@echo "  OBJCOPY $@"
-	@$(OBJCOPY) -O binary $< $@
+	@$(OBJCOPY) -O binary --remove-section .resource_table $< $@
+	@echo "  OBJCOPY $(BUILD_DIR)/resource_table.bin"
+	@$(OBJCOPY) -O binary --only-section .resource_table \
+		--change-section-address .resource_table=0 \
+		--pad-to 0x1000 --gap-fill 0x00 \
+		$< $(BUILD_DIR)/resource_table.bin
 
 # 逆向反汇编 (ASM) - 底层 debug 必看
 dump: $(TARGET).elf

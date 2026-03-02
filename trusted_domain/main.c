@@ -200,34 +200,19 @@ static void main_task(void *pvParameters)
     uart8250_puts("========================================\r\n");
     uart8250_puts("\r\n");
 
-    /* === Step 1: 初始化 Resource Table === */
-    uart8250_puts("[Step 1] Initializing Resource Table...\r\n");
-
-    resource_table_init();
-
-    uart8250_puts("Resource Table initialized\r\n");
+    /* === Step 1: Resource Table 已固定在共享内存 === */
+    uart8250_puts("[Step 1] Resource Table is fixed in shared memory\r\n");
     uart8250_puts("\r\n");
 
-    /* === Step 2: 初始化 Simple RPMsg 基础结构 === */
-    uart8250_puts("[Step 2] Initializing Simple RPMsg...\r\n");
-
-    if (simple_rpmsg_init() != 0) {
-        uart8250_puts("Failed to initialize RPMsg\r\n");
-        goto error;
-    }
-
-    uart8250_puts("RPMsg initialized\r\n");
-    uart8250_puts("\r\n");
-
-    /* === Step 2.5: 等待 Linux attach（避免 Race Condition）=== */
-    /* ⚠️ 必须在创建 endpoint 之前等待！*/
-    uart8250_puts("[Step 2.5] Waiting for Linux to attach (Virtio DRIVER_OK)...\r\n");
+    /* === Step 2: 等待 Linux attach（以 DRIVER_OK 作为门控）=== */
+    uart8250_puts("[Step 2] Waiting for Linux to attach (Virtio DRIVER_OK)...\r\n");
 
     volatile struct shared_resource_table *rsc =
         (volatile struct shared_resource_table *)RESOURCE_TABLE_ADDR;
 
     uint32_t timeout_count = 0;
     const uint32_t MAX_TIMEOUT = 60;  /* 最多等待 60 秒 */
+    int linux_attached = 0;
 
     while ((rsc->vdev.status & VIRTIO_CONFIG_S_DRIVER_OK) == 0) {
         vTaskDelay(pdMS_TO_TICKS(500));  /* 等待 500ms */
@@ -235,13 +220,13 @@ static void main_task(void *pvParameters)
 
         if (timeout_count >= (MAX_TIMEOUT * 2)) {  /* 500ms * 120 = 60s */
             uart8250_puts("[WARNING] Timeout waiting for Linux!\r\n");
-            uart8250_puts("[DEBUG] vdev.status = 0x00 (NOT READY)\r\n");
+            print_hex32("[DEBUG] vdev.status = ", rsc->vdev.status);
             break;
         }
 
         /* 每 5 秒打印一次等待信息 */
         if (timeout_count % 10 == 0) {
-            uart8250_puts("[Step 2.5] Still waiting... (");
+            uart8250_puts("[Step 2] Still waiting... (");
             /* 简单的数字打印（只支持 0-9）*/
             uint32_t sec = timeout_count / 2;
             if (sec < 10) {
@@ -255,8 +240,14 @@ static void main_task(void *pvParameters)
     }
 
     if ((rsc->vdev.status & VIRTIO_CONFIG_S_DRIVER_OK) != 0) {
-        uart8250_puts("[Step 2.5] Linux attached! vdev.status = DRIVER_OK\r\n");
+        linux_attached = 1;
+        uart8250_puts("[Step 2] Linux attached! vdev.status = DRIVER_OK\r\n");
         uart8250_puts("\r\n");
+    }
+
+    if (!linux_attached) {
+        uart8250_puts("[ERROR] Linux attach gate not reached, stop RPMsg init\r\n");
+        goto error;
     }
 
     /* ======================================================== */
@@ -274,8 +265,19 @@ static void main_task(void *pvParameters)
     /* ======================================================== */
     
 
-    /* === Step 3: 创建 RPMsg 端点（现在 Linux 已经准备好了）=== */
-    uart8250_puts("[Step 3] Creating RPMsg endpoint...\r\n");
+    /* === Step 3: Linux attach 完成后再初始化 RPMsg === */
+    uart8250_puts("[Step 3] Initializing Simple RPMsg...\r\n");
+
+    if (simple_rpmsg_init() != 0) {
+        uart8250_puts("Failed to initialize RPMsg\r\n");
+        goto error;
+    }
+
+    uart8250_puts("RPMsg initialized\r\n");
+    uart8250_puts("\r\n");
+
+    /* === Step 4: 创建 RPMsg 端点（现在 Linux 已经准备好了）=== */
+    uart8250_puts("[Step 4] Creating RPMsg endpoint...\r\n");
 
     if (simple_rpmsg_create_ept(&g_test_ept, "freertos-test",
                                 rpmsg_rx_cb, NULL) != 0) {
@@ -286,7 +288,7 @@ static void main_task(void *pvParameters)
     uart8250_puts("RPMsg endpoint created: freertos-test\r\n");
     uart8250_puts("\r\n");
 
-    /* 现在可以安全地发送 NS 宣告包了 */
+    /* 现在可以安全地发送 NS 宣告包 */
     if (simple_rpmsg_announce_endpoint() != 0) {
         uart8250_puts("Failed to announce endpoint\r\n");
     }

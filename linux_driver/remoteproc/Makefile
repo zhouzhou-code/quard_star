@@ -10,8 +10,8 @@ ifneq ($(KERNELRELEASE),)
 
 else
 
-# 获取项目根目录的绝对路径
-PROJECT_ROOT := $(shell cd $(PWD)/../.. && pwd)
+# 获取项目根目录的绝对路径（使用 CURDIR，避免 make -C 时 PWD 不可靠）
+PROJECT_ROOT := $(shell cd $(CURDIR)/../.. && pwd)
 
 # Linux 内核目录
 KERNELDIR := $(PROJECT_ROOT)/linux
@@ -20,13 +20,13 @@ KERNELDIR := $(PROJECT_ROOT)/linux
 CROSS_COMPILE := /opt/gcc15-riscv64-unknown-linux-gnu/bin/riscv64-unknown-linux-gnu-
 
 all:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) \
+	$(MAKE) -C $(KERNELDIR) M=$(CURDIR) \
 		ARCH=riscv \
 		CROSS_COMPILE=$(CROSS_COMPILE) \
 		modules
 
 clean:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) \
+	$(MAKE) -C $(KERNELDIR) M=$(CURDIR) \
 		ARCH=riscv \
 		CROSS_COMPILE=$(CROSS_COMPILE) \
 		clean

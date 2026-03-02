@@ -304,6 +304,7 @@ build_freertos() {
     fi
 
     cp "${TRUSTED_DOMAIN_DIR}/build/trusted_fw.bin" "${OUTPUT_DIR}/trusted_domain/"
+    cp "${TRUSTED_DOMAIN_DIR}/build/resource_table.bin" "${OUTPUT_DIR}/trusted_domain/"
     cp "${TRUSTED_DOMAIN_DIR}/build/trusted_fw.elf" "${OUTPUT_DIR}/trusted_domain/"
 }
 
@@ -511,6 +512,7 @@ build_driver() {
     cd "${SHELL_FOLDER}"
     log_step "Building Linux Drivers"
     check_dir "${OUTPUT_DIR}/linux_driver"
+    rm -f "${OUTPUT_DIR}/linux_driver/"*.ko
 
     # 遍历 linux_driver 下的所有子目录（包含 Makefile 的）
     for driver_dir in "${LINUX_DRIVER_DIR}"/*/; do
@@ -538,6 +540,181 @@ build_driver() {
     done
 
     log_info "Driver modules built in ${OUTPUT_DIR}/linux_driver/"
+    log_driver_artifacts "${OUTPUT_DIR}/linux_driver"
+    sync_driver_to_rootfs
+}
+
+sync_driver_to_rootfs() {
+    local ROOTFS_STAGE_DIR="${OUTPUT_DIR}/rootfs/rootfs/driver"
+    local IMG_FILE="${OUTPUT_DIR}/rootfs/rootfs.img"
+    local MOUNT_DIR="${OUTPUT_DIR}/rootfs/driver_sync_mount"
+    local loop_dev=""
+    local sudo_cmd=""
+
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        return 0
+    fi
+
+    if [ ! -d "${OUTPUT_DIR}/linux_driver" ] || ! ls "${OUTPUT_DIR}/linux_driver/"*.ko >/dev/null 2>&1; then
+        log_info "No built .ko files found, skip rootfs sync"
+        return 0
+    fi
+
+    # 1) 同步到 rootfs staging 目录（供后续 rootfs 打包使用）
+    check_dir "${ROOTFS_STAGE_DIR}"
+    rm -f "${ROOTFS_STAGE_DIR}/"*.ko
+    cp -f "${OUTPUT_DIR}/linux_driver/"*.ko "${ROOTFS_STAGE_DIR}/"
+    verify_driver_sync "${OUTPUT_DIR}/linux_driver" "${ROOTFS_STAGE_DIR}"
+    log_driver_artifacts "${ROOTFS_STAGE_DIR}"
+    log_info "Driver modules synced to staging: ${ROOTFS_STAGE_DIR}"
+
+    # 2) 若已有 rootfs.img，则直接热更新镜像内 /driver（避免必须再跑 rootfs 目标）
+    if [ ! -f "${IMG_FILE}" ]; then
+        log_info "No rootfs image found, skip image sync (${IMG_FILE})"
+        return 0
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        sudo_cmd="sudo"
+        if ! sudo -n true 2>/dev/null; then
+            log_info "rootfs.img exists; syncing drivers needs sudo, please enter password if prompted..."
+            if ! sudo -v; then
+                log_error "Cannot sync driver modules into rootfs image without sudo"
+                return 1
+            fi
+        fi
+    fi
+
+    check_dir "${MOUNT_DIR}"
+
+    cleanup_driver_sync() {
+        if mountpoint -q "${MOUNT_DIR}"; then
+            ${sudo_cmd} umount "${MOUNT_DIR}" || true
+        fi
+        if [ -n "${loop_dev}" ]; then
+            ${sudo_cmd} losetup -d "${loop_dev}" || true
+        fi
+    }
+
+    trap cleanup_driver_sync EXIT
+
+    loop_dev=$(${sudo_cmd} losetup -f)
+    ${sudo_cmd} losetup -P "${loop_dev}" "${IMG_FILE}"
+    ${sudo_cmd} mount "${loop_dev}p2" "${MOUNT_DIR}"
+    ${sudo_cmd} mkdir -p "${MOUNT_DIR}/driver"
+    ${sudo_cmd} find "${MOUNT_DIR}/driver" -maxdepth 1 -name "*.ko" -delete
+    ${sudo_cmd} cp -f "${OUTPUT_DIR}/linux_driver/"*.ko "${MOUNT_DIR}/driver/"
+    verify_driver_sync "${OUTPUT_DIR}/linux_driver" "${MOUNT_DIR}/driver"
+    sync
+
+    cleanup_driver_sync
+    trap - EXIT
+
+    log_info "Driver modules synced into rootfs image: ${IMG_FILE}:/driver"
+}
+
+verify_driver_sync() {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local ko
+    local ko_name
+    local src_count
+    local dst_count
+
+    src_count=$(find "${src_dir}" -maxdepth 1 -name "*.ko" | wc -l)
+    dst_count=$(find "${dst_dir}" -maxdepth 1 -name "*.ko" | wc -l)
+    if [ "${src_count}" -ne "${dst_count}" ]; then
+        log_error "Driver sync count mismatch: ${src_dir}=${src_count}, ${dst_dir}=${dst_count}"
+        return 1
+    fi
+
+    for ko in "${src_dir}"/*.ko; do
+        ko_name=$(basename "${ko}")
+        if [ ! -f "${dst_dir}/${ko_name}" ]; then
+            log_error "Driver sync missing: ${dst_dir}/${ko_name}"
+            return 1
+        fi
+        if ! cmp -s "${ko}" "${dst_dir}/${ko_name}"; then
+            log_error "Driver sync content mismatch: ${ko_name}"
+            return 1
+        fi
+    done
+}
+
+log_driver_artifacts() {
+    local dir="$1"
+    local ko
+    local ko_name
+    local sha
+
+    for ko in "${dir}"/*.ko; do
+        ko_name=$(basename "${ko}")
+        sha=$(sha256sum "${ko}" | awk '{print $1}')
+        log_info "  ${ko_name} sha256=${sha}"
+    done
+}
+
+verify_driver_deploy() {
+    local ROOTFS_STAGE_DIR="${OUTPUT_DIR}/rootfs/rootfs/driver"
+    local IMG_FILE="${OUTPUT_DIR}/rootfs/rootfs.img"
+    local MOUNT_DIR="${OUTPUT_DIR}/rootfs/driver_verify_mount"
+    local loop_dev=""
+    local sudo_cmd=""
+
+    log_step "Verifying Driver Deployment"
+
+    if [ ! -d "${OUTPUT_DIR}/linux_driver" ] || ! ls "${OUTPUT_DIR}/linux_driver/"*.ko >/dev/null 2>&1; then
+        log_error "No built driver modules found in ${OUTPUT_DIR}/linux_driver"
+        return 1
+    fi
+
+    if [ ! -d "${ROOTFS_STAGE_DIR}" ]; then
+        log_error "No driver staging directory found: ${ROOTFS_STAGE_DIR}"
+        return 1
+    fi
+
+    verify_driver_sync "${OUTPUT_DIR}/linux_driver" "${ROOTFS_STAGE_DIR}"
+    log_info "Verified staging sync: ${ROOTFS_STAGE_DIR}"
+
+    if [ ! -f "${IMG_FILE}" ]; then
+        log_info "No rootfs image found, skip image verification (${IMG_FILE})"
+        return 0
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        sudo_cmd="sudo"
+        if ! sudo -n true 2>/dev/null; then
+            log_info "rootfs.img verification needs sudo, please enter password if prompted..."
+            if ! sudo -v; then
+                log_error "Cannot verify rootfs image without sudo"
+                return 1
+            fi
+        fi
+    fi
+
+    check_dir "${MOUNT_DIR}"
+
+    cleanup_driver_verify() {
+        if mountpoint -q "${MOUNT_DIR}"; then
+            ${sudo_cmd} umount "${MOUNT_DIR}" || true
+        fi
+        if [ -n "${loop_dev}" ]; then
+            ${sudo_cmd} losetup -d "${loop_dev}" || true
+        fi
+    }
+
+    trap cleanup_driver_verify EXIT
+
+    loop_dev=$(${sudo_cmd} losetup -f)
+    ${sudo_cmd} losetup -P "${loop_dev}" "${IMG_FILE}"
+    ${sudo_cmd} mount -o ro "${loop_dev}p2" "${MOUNT_DIR}"
+
+    verify_driver_sync "${OUTPUT_DIR}/linux_driver" "${MOUNT_DIR}/driver"
+
+    cleanup_driver_verify
+    trap - EXIT
+
+    log_info "Verified image sync: ${IMG_FILE}:/driver"
 }
 
 pack_firmware() {
@@ -553,6 +730,7 @@ pack_firmware() {
     dd of=fw.bin bs=1k conv=notrunc seek=512 if="${OUTPUT_DIR}/opensbi/quard_star_sbi.dtb" status=none
     dd of=fw.bin bs=1k conv=notrunc seek=1024 if="${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" status=none
     dd of=fw.bin bs=1k conv=notrunc seek=2048 if="${OUTPUT_DIR}/opensbi/fw_jump.bin" status=none
+    dd of=fw.bin bs=1k conv=notrunc seek=3072 if="${OUTPUT_DIR}/trusted_domain/resource_table.bin" status=none
     dd of=fw.bin bs=1k conv=notrunc seek=4096 if="${OUTPUT_DIR}/trusted_domain/trusted_fw.bin" status=none
     dd of=fw.bin bs=1k conv=notrunc seek=8192 if="${OUTPUT_DIR}/uboot/u-boot.bin" status=none
     
@@ -688,6 +866,7 @@ usage() {
     echo "  driver          Build Linux Drivers (out-of-tree)"
     echo "  rootfs          Build Root Filesystem Image"
     echo "  firmware        Pack Firmware (fw.bin)"
+    echo "  verify-driver   Verify driver .ko consistency (output/staging/image)"
     echo ""
     echo "  OpenAMP-specific targets:"
     echo "  submodules      Initialize Git submodules (libmetal, open-amp)"
@@ -779,6 +958,9 @@ case "$TARGET" in
         ;;
     "firmware")
         pack_firmware
+        ;;
+    "verify-driver")
+        verify_driver_deploy
         ;;
     # OpenAMP 相关目标
     "submodules")

@@ -95,7 +95,8 @@ static int mailbox_probe(struct platform_device *pdev)
 
     /* 4. 注册中断处理函数 */
     ret = devm_request_irq(&pdev->dev, mailbox_irq, mailbox_isr,
-                           IRQF_SHARED, "mailbox_test", pdev);
+                           IRQF_SHARED | IRQF_TRIGGER_RISING,
+                           "mailbox_test", pdev);
     if (ret) {
         dev_err(&pdev->dev, "Failed to request IRQ %d (error: %d)\n", mailbox_irq, ret);
         return ret;

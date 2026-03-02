@@ -56,11 +56,10 @@ telnet localhost 4446
 
 ### 下一步工作
 1. 🔧 **修复 OpenAMP 适配层** - 重构 libmetal 依赖
-2. 🧪 **测试 Resource Table** - 分析为什么访问 0xbf70c000 会崩溃
+2. 🧪 **测试 Resource Table** - 验证共享内存固定地址可读
 3. 📡 **启用 RPMsg 通信** - 在 UART 测试通过后
 
 ### 已知问题
-- ⚠️ `resource_table_init()` 会导致系统崩溃，原因待分析
 - ⚠️ OpenAMP 适配层依赖大量 libmetal 头文件，需要重构
 
 ---

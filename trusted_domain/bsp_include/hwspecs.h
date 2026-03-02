@@ -35,17 +35,22 @@ extern "C" {
  */
 #define SHM_SIZE                (128 * 1024)
 
-/* VirtIO/vring 配置 */
-/* ⚠️ 尝试 Gemini 的建议：使用 0xFFFFFFFF 让 Linux 动态分配 */
-#define VRING_SIZE              256      /* 恢复 256，满足 Linux 的需求 */
-#define VRING_ALIGN             4096     /* vring 对齐到页边界 */
-#define VRING0_SIZE             (8 * 1024)   /* vring0 占用 8KB */
-#define VRING1_SIZE             (8 * 1024)   /* vring1 占用 8KB */
-#define RPMSG_BUF_SIZE          (32 * 1024)  /* rpmsg buffers 占用 32KB */
-
-/* ⚠️ 关键修复：使用 0xFFFFFFFF 让 Linux 动态分配内存，避免 8KB 限制 */
-#define VRING0_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
-#define VRING1_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
+/* VirtIO/vring 配置（固定地址契约） */
+/*
+ * VRING_SIZE 决定了每个 vring 的描述符数量
+ * 总共有 2 个 vring (TX + RX)，每个描述符对应一个 512 Byte 的 RPMsg Buffer
+ *
+ * 计算：
+ * - DMA 池大小：32 KB = 32,768 Bytes
+ * - 每个 Buffer：512 Bytes
+ * - 总 Buffer 数 = 32,768 / 512 = 64 个
+ * - 每个 vring = 64 / 2 = 32 个描述符
+ */
+#define VRING_SIZE              32
+#define VRING_ALIGN             4096
+#define VRING0_SIZE             (8 * 1024)    /* 0xbf700000 - 0xbf701fff */
+#define VRING1_SIZE             (8 * 1024)    /* 0xbf702000 - 0xbf703fff */
+#define RPMSG_BUF_SIZE          (32 * 1024)   /* 0xbf704000 - 0xbf70bfff */
 
 /* ============================================================================
  * UART 配置
@@ -60,20 +65,15 @@ extern "C" {
 /* UART 波特率 */
 #define UART_BAUDRATE       115200
 
-/**
- * Resource Table 在共享内存中的偏移
- * ⚠️ 修复：必须保持 0xc000，因为 Linux 驱动硬编码了这个地址！
- */
-#define RESOURCE_TABLE_OFFSET   0xc000  /* 48KB - Linux 期望的地址 */
+/* 固定共享内存布局 */
+#define VRING0_PA               (SHM_BASE_ADDR + 0x0000)
+#define VRING1_PA               (SHM_BASE_ADDR + 0x2000)
+#define RPMSG_BUF_PA            (SHM_BASE_ADDR + 0x4000)
+
+/* Resource Table 固定在共享内存尾部 */
+#define RESOURCE_TABLE_OFFSET   0xc000
 #define RESOURCE_TABLE_ADDR     (SHM_BASE_ADDR + RESOURCE_TABLE_OFFSET)
 #define RESOURCE_TABLE_SIZE     (4 * 1024)
-
-/* ⚠️ 尝试 Gemini 的建议：使用 0xFFFFFFFF 让 Linux 动态分配 */
-/* 内存布局： */
-/* VRING0 和 VRING1 使用 0xFFFFFFFF，让 Linux 动态分配实际地址 */
-/* Resource Table 依然在 0xbf70c000 */
-#define VRING0_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
-#define VRING1_PA               0xFFFFFFFF  /* 让 Linux 动态分配 */
 
 /* ============================================================================
  * Mailbox 中断号映射 (Mailbox IRQ Mapping)
@@ -127,11 +127,8 @@ extern "C" {
 #define MAILBOX_IRQ_TO_LINUX    50
 #define MAILBOX_IRQ_TO_RTOS     51
 
-/**
- * Linux 端 IRQ 编号 (相对于 PLIC base)
- * PLIC base = 1, 所以实际 IRQ = MAILBOX_IRQ_TO_LINUX - 1
- */
-#define LINUX_MAILBOX_IRQ       (MAILBOX_IRQ_TO_LINUX - 1)  /* IRQ 49 用于 Linux */
+/* Linux 端 mailbox 中断号（设备树 interrupts = <50>） */
+#define LINUX_MAILBOX_IRQ       MAILBOX_IRQ_TO_LINUX
 
 /* ============================================================================
  * OpenAMP/RPMsg 配置

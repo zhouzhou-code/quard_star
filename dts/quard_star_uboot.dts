@@ -29,12 +29,18 @@
             reg = <0x0 0xbff80000 0x0 0x00080000>;
         };
 
-        /* 3. 保护 OpenAMP 的共享内存与资源表 */
-        /* 地址: 0xbf700000, 大小: 0x20000 (128KB) */
-        /* 把大平层圈好就行，内部的 vring 和 rsc_table 交给代码里的宏去定位 */
+        /* 3. 保护 OpenAMP 共享内存整体区域（防止其他驱动占用） */
         amp_shm: amp_shared_region@bf700000 {
             no-map;
             reg = <0x0 0xbf700000 0x0 0x00020000>;
+        };
+
+        /* 4. RPMsg buffer DMA 池（给 virtio_rpmsg_bus 使用） */
+        /* virtio_rpmsg_bus 会从这里分配 DMA buffer */
+        rpmsg_dma: rpmsg_dma_buffer@bf704000 {
+            compatible = "shared-dma-pool";
+            reg = <0x0 0xbf704000 0x0 0x00008000>;  /* 32KB @ 0xbf704000 */
+            no-map;
         };
     };
 
@@ -42,8 +48,10 @@
     rproc0: rproc@bf700000 {
         compatible = "quard-star,rproc";
         reg = <0x0 0xbf700000 0x0 0x20000>;
-        /* 引用上面定义好的共享内存 */
-        memory-region = <&amp_shm>;
+        /* 引用上面定义好的共享内存（可选，用于资源表定位） */
+        memory-region = <&rpmsg_dma>;
+        /* 关键：名字必须为 "vdev0buffer"，remoteproc 核心会自动查找并绑定给 virtio */
+        memory-region-names = "vdev0buffer";
         /* Mailbox IRQ 50 for notifications from FreeRTOS (Hart 7) */
         interrupts = <0x32>;
         interrupt-parent = <0x11>;

@@ -68,15 +68,8 @@ struct vring {
 #define RPMSG_NS_ADDR         53
 
 /* NS 消息标志 */
-#define RPMSG_NS_DESTROY      0
-#define RPMSG_NS_CREATE       1
-
-/* NS 宣告包结构（严格格式） */
-struct rpmsg_ns_msg {
-    char name[32];
-    uint32_t addr;
-    uint32_t flags;
-} __attribute__((packed));
+#define RPMSG_NS_DESTROY      1
+#define RPMSG_NS_CREATE       0
 
 /* RPMsg 消息头 */
 struct rpmsg_hdr {
@@ -88,14 +81,22 @@ struct rpmsg_hdr {
     uint8_t  data[];
 } __attribute__((packed));
 
+/* RPMsg NS (Name Service) 消息结构 */
+struct rpmsg_ns_msg {
+    char name[32];
+    uint32_t addr;
+    uint32_t flags;
+} __attribute__((packed));
+
 /* ============================================================================
  * 全局变量
  * ============================================================================ */
 
-static struct vring g_vring0;  /* TX vring (FreeRTOS → Linux) */
-static struct vring g_vring1;  /* RX vring (Linux → FreeRTOS) */
+static struct vring g_vring0;  /* TX vring (FreeRTOS -> Linux) */
+static struct vring g_vring1;  /* RX vring (Linux -> FreeRTOS) */
 static struct rpmsg_endpoint g_ept;
 static uint32_t g_local_addr = 0x30;  /* 本地端点地址 */
+static uint32_t g_remote_addr = RPMSG_NS_ADDR; /* 业务消息目的地址，收到首包后更新 */
 static int g_rpmsg_initialized = 0;
 
 /* ⚠️ 关键：本地消费索引（由 Device 维护）*/
@@ -112,7 +113,7 @@ static uint16_t rx_avail_idx = 0;  /* RX 环的本地消费索引 */
 /**
  * 初始化 VirtQueue 指针
  */
-static void vring_init(struct vring *vr, uint32_t pa)
+static void vring_init(struct vring *vr, uintptr_t pa)
 {
     vr->desc  = (struct vring_desc *)pa;
     vr->avail = (struct vring_avail *)(pa + VRING_SIZE * sizeof(struct vring_desc));
@@ -137,7 +138,7 @@ static void mailbox_kick_to_linux(void)
     volatile uint32_t *mailbox = (volatile uint32_t *)MAILBOX_BASE_ADDR;
 
     /* 写寄存器触发中断到 Linux */
-    MAILBOX_REG(mailbox, REG_RTOS_TRIG) = 1;
+    MAILBOX_REG(mailbox, REG_LINUX_TRIG) = 1;
 
     /* RISC-V 内存屏障 */
     __asm__ volatile("fence ow,ow" ::: "memory");
@@ -161,8 +162,8 @@ int simple_rpmsg_init(void)
     volatile struct shared_resource_table *rsc =
         (volatile struct shared_resource_table *)RESOURCE_TABLE_ADDR;
 
-    uint32_t vring0_pa = rsc->vring0.da;
-    uint32_t vring1_pa = rsc->vring1.da;
+    uintptr_t vring0_pa = (uintptr_t)rsc->vring0.da;
+    uintptr_t vring1_pa = (uintptr_t)rsc->vring1.da;
 
     /* 使用 Resource Table 中的实际地址初始化 vring */
     vring_init(&g_vring0, vring0_pa);
@@ -171,13 +172,15 @@ int simple_rpmsg_init(void)
     /* 初始化本地消费索引 */
     tx_avail_idx = 0;
     rx_avail_idx = 0;
+    g_remote_addr = RPMSG_NS_ADDR;
 
-    uart8250_puts("[RPMsg] vring0 PA = 0x");
-    /* 简单打印 */
-    uart8250_puts("\r\n");
+    /* ✅ 修复：正确打印 vring PA */
+    char buf[64];
+    snprintf(buf, sizeof(buf), "[RPMsg] vring0 PA = 0x%lx\r\n", vring0_pa);
+    uart8250_puts(buf);
 
-    uart8250_puts("[RPMsg] vring1 PA = 0x");
-    uart8250_puts("\r\n");
+    snprintf(buf, sizeof(buf), "[RPMsg] vring1 PA = 0x%lx\r\n", vring1_pa);
+    uart8250_puts(buf);
 
     uart8250_puts("[RPMsg] Local consumer indices reset\r\n");
 
@@ -200,6 +203,7 @@ static int send_ns_announce(struct rpmsg_endpoint *ept)
 {
     struct vring *vr = &g_vring0;  /* TX 环 */
     struct vring_desc *desc;
+    struct rpmsg_hdr *hdr;
     struct rpmsg_ns_msg *ns_msg;
     uint16_t desc_idx;
     uint32_t msg_len;
@@ -210,7 +214,7 @@ static int send_ns_announce(struct rpmsg_endpoint *ept)
         return -1;
     }
 
-    msg_len = sizeof(struct rpmsg_ns_msg);
+    msg_len = sizeof(struct rpmsg_hdr) + sizeof(struct rpmsg_ns_msg);
 
     /* ✅ 终极修复：死等 Linux 提供空 buffer（Race Condition 修复）*/
     uint32_t wait_count = 0;
@@ -253,12 +257,25 @@ static int send_ns_announce(struct rpmsg_endpoint *ept)
     /* 使用 descriptor 中提供的 buffer 地址 */
     buffer = (uint8_t *)(uintptr_t)desc->addr;
 
-    uart8250_puts("[RPMsg] NS: buffer addr = 0x");
-    /* 简单打印 */
-    uart8250_puts("\r\n");
+    if (msg_len > desc->len) {
+        uart8250_puts("[RPMsg] NS payload too large for descriptor\r\n");
+        return -1;
+    }
 
-    /* 2. 构建 NS 宣告包 */
-    ns_msg = (struct rpmsg_ns_msg *)buffer;
+    /* ✅ 修复：正确打印 buffer 地址 */
+    char buf[64];
+    snprintf(buf, sizeof(buf), "[RPMsg] NS: buffer addr = 0x%lx\r\n", (uintptr_t)desc->addr);
+    uart8250_puts(buf);
+
+    /* 2. 构建 RPMsg + NS 宣告包 */
+    hdr = (struct rpmsg_hdr *)buffer;
+    hdr->src = g_local_addr;
+    hdr->dst = RPMSG_NS_ADDR;
+    hdr->reserved = 0;
+    hdr->len = sizeof(struct rpmsg_ns_msg);
+    hdr->flags = 0;
+
+    ns_msg = (struct rpmsg_ns_msg *)hdr->data;
     memset(ns_msg, 0, sizeof(*ns_msg));
     strncpy(ns_msg->name, ept->name, sizeof(ns_msg->name) - 1);
     ns_msg->addr = g_local_addr;
@@ -374,10 +391,14 @@ int simple_rpmsg_send(struct rpmsg_endpoint *ept, const void *data, size_t len)
     /* 使用 descriptor 中提供的 buffer 地址 */
     buffer = (uint8_t *)(uintptr_t)desc->addr;
 
+    if (msg_len > desc->len) {
+        return -1;
+    }
+
     /* 2. 构建 RPMsg 消息头 */
     hdr = (struct rpmsg_hdr *)buffer;
     hdr->src = g_local_addr;
-    hdr->dst = RPMSG_NS_ADDR;
+    hdr->dst = g_remote_addr;
     hdr->reserved = 0;
     hdr->len = len;
     hdr->flags = 0;
@@ -441,13 +462,20 @@ void simple_rpmsg_poll(void)
     buffer = (uint8_t *)(uintptr_t)desc->addr;
     hdr = (struct rpmsg_hdr *)buffer;
 
-    uart8250_puts("[RPMsg] Received: ");
-    uart8250_puts((const char *)hdr->data);
-    uart8250_puts("\r\n");
+    if (desc->len >= sizeof(*hdr) && hdr->len <= (desc->len - sizeof(*hdr))) {
+        /* 记录对端业务地址，后续 simple_rpmsg_send 使用 */
+        g_remote_addr = hdr->src;
 
-    /* 2. 触发回调处理业务 */
-    if (g_ept.cb) {
-        g_ept.cb(&g_ept, hdr->data, hdr->len, hdr->src);
+        uart8250_puts("[RPMsg] Received: ");
+        uart8250_puts((const char *)hdr->data);
+        uart8250_puts("\r\n");
+
+        /* 2. 触发回调处理业务 */
+        if (g_ept.cb) {
+            g_ept.cb(&g_ept, hdr->data, hdr->len, hdr->src);
+        }
+    } else {
+        uart8250_puts("[RPMsg] Drop malformed packet\r\n");
     }
 
     /* 3. ✅ 将 Buffer 生产到 used 环，退还给 Linux */

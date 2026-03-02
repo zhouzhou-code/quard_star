@@ -14,13 +14,13 @@ amp_ipc_poll-y := src/amp_ipc_poll.o
 
 # Build Rules
 all:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) modules
+	$(MAKE) -C $(KERNELDIR) M=$(CURDIR) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) modules
 
 clean:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) clean
+	$(MAKE) -C $(KERNELDIR) M=$(CURDIR) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) clean
 
 # Installation Rule (Optional)
 install:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) modules_install
+	$(MAKE) -C $(KERNELDIR) M=$(CURDIR) ARCH=riscv CROSS_COMPILE=$(CROSS_COMPILE) modules_install
 
 .PHONY: all clean install
