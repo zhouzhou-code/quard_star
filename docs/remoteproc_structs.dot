@@ -1,0 +1,185 @@
+digraph UltimateCompactLR {
+  rankdir=LR;
+  splines=spline;
+  nodesep=0.3;     // 极限压缩上下间距
+  ranksep=0.8;     // 极限压缩左右间距
+  newrank=true;    // 允许跨越边界的严格列对齐
+
+  node [shape=plaintext, fontname="Helvetica", fontsize=10, margin=0];
+  edge [color="#6A98D7", penwidth=1.5, arrowsize=0.8, fontname="Helvetica-Oblique", fontsize=9];
+
+  // ==========================================
+  // 节点定义 (保持所有真实字段和细节)
+  // ==========================================
+  pdev [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct platform_device</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="dev">dev (struct device)</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">resource[]</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">name</TD></TR>
+      <TR><TD BGCOLOR="#D9EAD3" PORT="drvdata"><I>drvdata slot</I></TD></TR>
+    </TABLE>
+  >];
+
+  virtio_bus [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>virtio_rpmsg_bus</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="probe">.probe()</TD></TR>
+    </TABLE>
+  >];
+
+  dev [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct device</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="drv">driver_data (void *)</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="of">of_node</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">parent</TD></TR>
+    </TABLE>
+  >];
+
+  qs_rproc [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct quard_star_rproc</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="dev">*dev</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="rproc">rproc</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="mbox">mailbox_base (MMIO)</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="irq">vq_irq = 50</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="rsc">rsc_table</TD></TR>
+    </TABLE>
+  >];
+
+  irq_flow [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>Threaded IRQ Handler</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="hard">vq_irq_handler()</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="thread">vq_irq_thread()</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="notify">rproc_vq_interrupt()</TD></TR>
+    </TABLE>
+  >];
+  
+  res_mem [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>reserved_memory</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">base (0xbf704000)</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">size (32KB)</TD></TR>
+    </TABLE>
+  >];
+
+  rproc [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct rproc</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="ops">ops</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">state</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="ptr">table_ptr</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="vdevs">vdevs</TD></TR>
+    </TABLE>
+  >];
+
+  rproc_ops [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct rproc_ops</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">.prepare() / .kick()</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">.attach() / .detach()</TD></TR>
+    </TABLE>
+  >];
+
+  rproc_vdev [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct rproc_vdev</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">index</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="vring">vring[]</TD></TR>
+    </TABLE>
+  >];
+
+  rproc_vring [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct rproc_vring</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">num / align</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="notify">notifyid</TD></TR>
+    </TABLE>
+  >];
+
+  rsc_table [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct resource_table</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">ver = 1</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="off">offset[]</TD></TR>
+    </TABLE>
+  >];
+  
+  fw_hdr [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct fw_rsc_hdr</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="type">type</TD></TR>
+    </TABLE>
+  >];
+
+  fw_vdev [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct fw_rsc_vdev</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">id = 7</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="status">status = DRIVER_OK</TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA" PORT="vrings">vring[] (柔性数组)</TD></TR>
+    </TABLE>
+  >];
+
+  fw_vring [label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">
+      <TR><TD BORDER="0" PORT="title" FONTCOLOR="#E65A5A"><B>struct fw_rsc_vdev_vring</B></TD></TR>
+      <TR><TD BGCOLOR="#E6F0FA">da / pa</TD></TR>
+    </TABLE>
+  >];
+
+  // ==========================================
+  // 【绝对核武级优化】：强制划分密集的垂直 5 列！
+  // 彻底消灭空隙，拒绝拉长！
+  // ==========================================
+  
+  // 第一列：入口模型和总线 (解决你标的第一个绿框留空)
+  { rank=same; pdev; virtio_bus; }
+  
+  // 第二列：设备对象与内存
+  { rank=same; dev; res_mem; }
+  
+  // 第三列：驱动私有对象与中断流
+  { rank=same; qs_rproc; irq_flow; }
+  
+  // 第四列：Rproc 核心与操作集
+  { rank=same; rproc; rproc_ops; rproc_vdev; }
+
+  // 第五列：固件资源表 (解决你标的第二个绿框拉长问题)
+  // 把它们按在同一列，强行变成“糖葫芦”一样垂直排布！
+  { rank=same; rsc_table; fw_hdr; fw_vdev; fw_vring; }
+
+
+  // ==========================================
+  // 连线逻辑 (根据网格列优化箭头方向)
+  // ==========================================
+  
+  pdev:dev:e -> dev:title:w [dir=both, arrowtail=diamond, arrowhead=normal, color="#E65A5A", penwidth=2, label=" embeds"];
+  
+  // 绿色的挂载长箭头，允许不受列约束自然横跨
+  qs_rproc:title:w -> pdev:drvdata:e [color="#22A853", penwidth=3.0, constraint=false, label=" platform_set_drvdata"];
+  qs_rproc:dev:w -> dev:title:e [color="#6A98D7", penwidth=1.5, constraint=false, label=" *dev"];
+
+  dev:drv:e -> qs_rproc:title:w [color="#6A98D7", penwidth=1.5];
+  dev:of:e -> res_mem:title:w [style=dashed, color="#999999", label="dma pool"];
+
+  qs_rproc:rproc:e -> rproc:title:w;
+  qs_rproc:irq:e -> irq_flow:title:w [color="#E65A5A", penwidth=2];
+  qs_rproc:rsc:e -> rsc_table:title:w [color="#6A98D7", penwidth=1.5, constraint=false]; // 指向第5列
+
+  rproc:ops:s -> rproc_ops:title:n [weight=10]; // 同列内部，向下指
+  rproc:vdevs:s -> rproc_vdev:title:n [weight=10]; // 同列内部，向下指
+  rproc:ptr:e -> rsc_table:title:w [style=dashed, color="#999999", constraint=false];
+
+  // 固件解析链：因为它们都在第5列，强制使用上下连线，完美垂直折叠！
+  rsc_table:off:s -> fw_hdr:title:n [weight=100, color="#F6B26B", penwidth=2];
+  fw_hdr:type:s -> fw_vdev:title:n [weight=100, color="#F6B26B", penwidth=2, label=" contiguous"];
+  fw_vdev:vrings:s -> fw_vring:title:n [weight=100, color="#F6B26B", penwidth=2, label=" offset"];
+
+  virtio_bus:probe:e -> rproc_vdev:title:w [style=dashed, color="#999999", label="binds"];
+  
+  irq_flow:notify:e -> rproc_vring:title:w [color="#F6B26B", penwidth=2, style=dashed, label=" kicks RX"];
+  rproc_vdev:vring:e -> rproc_vring:title:w;
+}

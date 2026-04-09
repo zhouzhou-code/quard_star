@@ -1,0 +1,158 @@
+flowchart TB
+  %% ==== 核心结构：quard_star_rproc（主体） ====
+  subgraph QSR["struct quard_star_rproc"]
+    direction TB
+    QSR_dev["dev"]
+    QSR_rproc["rproc"]
+    QSR_mailbox["mailbox_base"]
+    QSR_irq["vq_irq"]
+    QSR_rsc["rsc_table"]
+    QSR_rscsz["rsc_table_size"]
+  end
+
+  %% ==== platform_device ====
+  subgraph PDEV["struct platform_device"]
+    direction TB
+    PDEV_dev["dev"]
+    PDEV_res["resource[]"]
+    PDEV_id["id"]
+    PDEV_name["name"]
+  end
+
+  %% ==== device ====
+  subgraph DEV["struct device"]
+    direction TB
+    DEV_drvdata["driver_data"]
+    DEV_parent["parent"]
+    DEV_name["init_name"]
+  end
+
+  %% ==== rproc ====
+  subgraph RPROC["struct rproc"]
+    direction TB
+    RPROC_ops["ops"]
+    RPROC_state["state"]
+    RPROC_autoboot["auto_boot"]
+    RPROC_table["table_ptr"]
+    RPROC_carve["carveouts"]
+    RPROC_vdevs["vdevs"]
+  end
+
+  %% ==== rproc_ops ====
+  subgraph RPOPS["struct rproc_ops"]
+    direction TB
+    RPOPS_prepare["prepare()"]
+    RPOPS_getrsc["get_loaded_rsc_table()"]
+    RPOPS_kick["kick()"]
+    RPOPS_attach["attach()"]
+    RPOPS_detach["detach()"]
+    RPOPS_start["start()"]
+    RPOPS_stop["stop()"]
+  end
+
+  %% ==== resource table ====
+  subgraph RSCT["struct resource_table"]
+    direction TB
+    RSCT_ver["ver"]
+    RSCT_num["num"]
+    RSCT_res["reserved[2]"]
+    RSCT_off["offset[]"]
+  end
+
+  subgraph RSC_HDR["struct fw_rsc_hdr"]
+    direction TB
+    RSC_HDR_type["type"]
+  end
+
+  subgraph RSC_VDEV["struct fw_rsc_vdev"]
+    direction TB
+    RSC_VDEV_id["id"]
+    RSC_VDEV_notify["notifyid"]
+    RSC_VDEV_df["dfeatures"]
+    RSC_VDEV_gf["gfeatures"]
+    RSC_VDEV_cfg["config_len"]
+    RSC_VDEV_status["status"]
+    RSC_VDEV_nv["num_of_vrings"]
+    RSC_VDEV_res["reserved[2]"]
+  end
+
+  subgraph RSC_VRING["struct fw_rsc_vdev_vring"]
+    direction TB
+    RSC_VRING_da["da"]
+    RSC_VRING_align["align"]
+    RSC_VRING_num["num"]
+    RSC_VRING_notify["notifyid"]
+    RSC_VRING_pa["pa"]
+  end
+
+  %% ==== rproc_vdev / rproc_vring ====
+  subgraph RVDEV["struct rproc_vdev"]
+    direction TB
+    RVDEV_idx["index"]
+    RVDEV_vrings["vring[]"]
+  end
+
+  subgraph RVRING["struct rproc_vring"]
+    direction TB
+    RVRING_num["num"]
+    RVRING_align["align"]
+    RVRING_notify["notifyid"]
+  end
+
+  %% ==== mailbox regs ====
+  subgraph MB["Mailbox MMIO"]
+    direction TB
+    MB_ltrig["REG_LINUX_TRIG"]
+    MB_lack["REG_LINUX_ACK"]
+    MB_lstat["REG_LINUX_STAT"]
+    MB_lie["REG_LINUX_IE"]
+    MB_rtrig["REG_RTOS_TRIG"]
+    MB_rack["REG_RTOS_ACK"]
+    MB_rstat["REG_RTOS_STAT"]
+    MB_rie["REG_RTOS_IE"]
+  end
+
+  %% ==== virtio_rpmsg_bus ====
+  subgraph VRPMSG["struct virtio_rpmsg_bus"]
+    direction TB
+    VRPMSG_probe["probe()"]
+    VRPMSG_remove["remove()"]
+  end
+
+  %% ==== reserved memory ====
+  subgraph RESMEM["reserved_memory (DMA pool)"]
+    direction TB
+    RESMEM_base["base"]
+    RESMEM_size["size"]
+  end
+
+  %% ==== 关系（箭头） ====
+  %% pdev.dev -> struct device
+  PDEV_dev --> DEV
+  %% pdev -> priv
+  PDEV_name --> QSR
+
+  %% priv members -> target structs
+  QSR_dev --> DEV
+  QSR_rproc --> RPROC
+  QSR_mailbox --> MB
+  QSR_rsc --> RSCT
+
+  %% rproc members -> target structs
+  RPROC_ops --> RPOPS
+  RPROC_table --> RSCT
+  RPROC_vdevs --> RVDEV
+
+  %% rvdev -> rvring
+  RVDEV_vrings --> RVRING
+
+  %% resource table layout
+  RSCT_off --> RSC_HDR
+  RSC_HDR --> RSC_VDEV
+  RSC_VDEV --> RSC_VRING
+
+  %% virtio/rpmsg uses vdev
+  VRPMSG_probe --> RVDEV
+
+  %% device -> reserved memory
+  DEV --> RESMEM

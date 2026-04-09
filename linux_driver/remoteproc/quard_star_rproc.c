@@ -11,8 +11,8 @@
  * ============================================================================
  *
  * 本系统基于 RISC-V OpenSBI Domain 机制实现资源隔离：
- * - Hart 0: FreeRTOS 实时域 (由 OpenSBI Domains 独立启动)
- * - Hart 1-7: Linux 计算域 (由 OpenSBI Domains 独立启动)
+ * - Hart 7: FreeRTOS 实时域 (由 OpenSBI Domains 独立启动)
+ * - Hart 0-6: Linux 计算域 (由 OpenSBI Domains 独立启动)
  *
  * 两个域同步启动，Linux 不负责 FreeRTOS 的固件加载与复位。
  * 因此本驱动工作在 "Attach-Only" (纯附加) 模式，仅负责：
@@ -493,18 +493,22 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 
 	dev_info(dev, "Probing Quard Star remoteproc driver\n");
 
-	/* 分配私有数据 */
+	/*
+	 * 1) 分配驱动私有数据（driver context）
+	 * devm_kzalloc: 与设备生命周期绑定，probe 失败或 remove 时自动释放。
+	 */
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
 
 	priv->dev = dev;
+	/* 将 priv 绑定到 pdev，后续 remove/ISR 可通过 platform_get_drvdata 获取 */
 	platform_set_drvdata(pdev, priv);
 
 	/*
-	 * 初始化 remoteproc 设备的 DMA 内存池
-	 * virtio_rpmsg_bus 使用 dma_alloc_coherent(vdev->dev.parent, ...)
-	 * 其中 vdev->dev.parent 就是我们的 remoteproc 设备
+	 * 2) 初始化 remoteproc 设备的 DMA 内存池
+	 * of_reserved_mem_device_init(): 将 DTS 中 reserved-memory 绑定到该设备，
+	 * 使 dma_alloc_coherent() 优先从固定保留内存分配（用于 rpmsg buffer 池）。
 	 */
 	ret = of_reserved_mem_device_init(dev);
 	if (ret) {
@@ -514,7 +518,11 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 		dev_info(dev, "DMA memory pool initialized\n");
 	}
 
-	/* 映射 Mailbox 寄存器（不独占资源，便于 mailbox_test 并行加载） */
+	/*
+	 * 3) 映射 Mailbox MMIO
+	 * devm_ioremap(): 仅做映射，不申请独占 mem region，
+	 * 允许 mailbox_test 并行加载；若用 devm_ioremap_resource 会独占资源。
+	 */
 	priv->mailbox_base = devm_ioremap(dev, QUARD_STAR_MAILBOX_PA,
 					  QUARD_STAR_MAILBOX_SIZE);
 	if (!priv->mailbox_base) {
@@ -523,7 +531,11 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 		goto err_dma_mem;
 	}
 
-	/* 获取 Mailbox IRQ */
+	/*
+	 * 4) 获取 IRQ
+	 * platform_get_irq() 返回的是 Linux 虚拟 IRQ 号，
+	 * 硬件 PLIC 中断号来自 DTS 的 interrupts 字段。
+	 */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		/* 如果设备树没有指定，使用硬编码的 IRQ 50 */
@@ -534,16 +546,16 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	priv->vq_irq = irq;
 
 	/*
-	 * 注册 Mailbox IRQ 处理器（使用 threaded IRQ）
-	 * 原因：virtio rpmsg 的回调函数会调用 mutex_lock()，可能睡眠
-	 * 硬 IRQ 上下文不允许睡眠，必须使用 threaded IRQ
+	 * 5) 注册 Mailbox IRQ 处理器（threaded IRQ）
+	 * 原因：rproc_vq_interrupt -> virtqueue 回调路径可能睡眠（例如 mutex_lock），
+	 * 硬 IRQ 上下文禁止睡眠，因此需要 threaded IRQ。
 	 *
-	 * hardirq: quard_star_vq_irq_handler (只清除中断，返回 IRQ_WAKE_THREAD)
-	 * thread_fn: quard_star_vq_irq_thread (调用 rproc_vq_interrupt，可以睡眠)
+	 * hardirq: quard_star_vq_irq_handler  (只 ACK 中断并返回 IRQ_WAKE_THREAD)
+	 * thread:  quard_star_vq_irq_thread   (调用 rproc_vq_interrupt，可睡眠)
 	 */
 	ret = devm_request_threaded_irq(dev, irq,
-					 quard_star_vq_irq_handler,
-					 quard_star_vq_irq_thread,
+						 quard_star_vq_irq_handler,
+						 quard_star_vq_irq_thread,
 					 IRQF_TRIGGER_RISING | IRQF_SHARED,
 					 dev_name(dev), priv);
 	if (ret) {

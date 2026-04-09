@@ -15,8 +15,8 @@ $SHELL_FOLDER/output/qemu/bin/qemu-system-riscv64 \
 -serial mon:stdio \
 -serial null \
 -serial tcp::4446,server,nowait \
--nographic --parallel none \
--s -S
+-nographic --parallel none 
+# -s -S
 # -s -S
 
 #将三个串口以TCP服务器方式输出，方便使用telnet连接调试 

@@ -113,7 +113,7 @@ static int mailbox_probe(struct platform_device *pdev)
 
     return 0;
 }
-
+ 
 /*
  * 平台设备 Remove 函数
  */
