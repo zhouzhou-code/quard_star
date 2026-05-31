@@ -1,8 +1,9 @@
 # Makefile for Mailbox Test Driver
 
-# Kernel Directory (will be set by build.sh)
-KERNELDIR := /home/zms/quard_star/linux
-CROSS_COMPILE := /opt/gcc15-riscv64-unknown-linux-gnu/bin/riscv64-unknown-linux-gnu-
+# Kernel Directory (build.sh 命令行覆盖；独立 make 用相对回退)
+PROJECT_ROOT := $(shell cd $(CURDIR)/../.. && pwd)
+KERNELDIR ?= $(PROJECT_ROOT)/source/linux
+CROSS_COMPILE ?= $(PROJECT_ROOT)/toolchain/gcc15-riscv64-unknown-linux-gnu/bin/riscv64-unknown-linux-gnu-
 
 # Build directory
 BUILD_DIR := $(CURDIR)/build

@@ -87,5 +87,9 @@ CONFIG_SYS_MAX_FLASH_BANKS=1
 # 这会编译并包含单元测试代码，可以通过命令运行测试
 CONFIG_UNIT_TEST=y
 
+# 禁用 efimkcapsule 主机工具：它需要 gnutls 开发库，本板(QEMU)用不到 UEFI
+# 胶囊更新；不禁用会在缺少 gnutls 时导致 mkimage/tools 编译失败。
+CONFIG_TOOLS_MKEFICAPSULE=n
+
 
 

@@ -13,11 +13,11 @@ else
 # 获取项目根目录的绝对路径（使用 CURDIR，避免 make -C 时 PWD 不可靠）
 PROJECT_ROOT := $(shell cd $(CURDIR)/../.. && pwd)
 
-# Linux 内核目录
-KERNELDIR := $(PROJECT_ROOT)/linux
+# Linux 内核目录（?= 允许 build.sh 命令行覆盖）
+KERNELDIR ?= $(PROJECT_ROOT)/source/linux
 
-# 交叉编译工具链
-CROSS_COMPILE := /opt/gcc15-riscv64-unknown-linux-gnu/bin/riscv64-unknown-linux-gnu-
+# 交叉编译工具链（?= 允许 build.sh 命令行覆盖）
+CROSS_COMPILE ?= $(PROJECT_ROOT)/toolchain/gcc15-riscv64-unknown-linux-gnu/bin/riscv64-unknown-linux-gnu-
 
 all:
 	$(MAKE) -C $(KERNELDIR) M=$(CURDIR) \
