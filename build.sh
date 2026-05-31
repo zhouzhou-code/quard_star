@@ -745,6 +745,58 @@ verify_driver_deploy() {
     log_info "Verified image sync: ${IMG_FILE}:/driver"
 }
 
+# ==============================================================================
+# Menuconfig 目标：对各组件跑 menuconfig，并把结果存回被跟踪的配置文件
+# （menuconfig 为交互式 TUI，需要在真实终端里运行，依赖 libncurses-dev）
+# ==============================================================================
+
+build_kernelconfig() {
+    cd "${SHELL_FOLDER}"
+    log_step "Kernel menuconfig ($KERNEL_VER)"
+    [ -d "${KERNEL_DIR}" ] || { msg_error "内核源码不存在: ${KERNEL_DIR}"; return 1; }
+    cd "${KERNEL_DIR}"
+    # 无 .config 时先用已保存的配置初始化
+    if [ ! -f .config ] && [ -f "${CONFIG_FILE}" ]; then
+        cp "${CONFIG_FILE}" .config
+    fi
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" menuconfig
+    # 存回被跟踪的内核配置
+    mkdir -p "$(dirname "${CONFIG_FILE}")"
+    cp .config "${CONFIG_FILE}"
+    msg_info "内核配置已存回: ${CONFIG_FILE}"
+    finish_build
+}
+
+build_ubootconfig() {
+    cd "${SHELL_FOLDER}"
+    log_step "U-Boot menuconfig"
+    cd "${UBOOT_DIR}"
+    if [ ! -f .config ]; then
+        make CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" qemu-quard-star_defconfig
+    fi
+    make CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" menuconfig
+    # 用 savedefconfig 生成最小 defconfig 并存回
+    make CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" savedefconfig
+    cp defconfig configs/qemu-quard-star_defconfig
+    msg_warn "U-Boot defconfig 由 savedefconfig 重新生成(原注释会丢失)，请 git diff 确认"
+    msg_info "U-Boot defconfig 已存回: ${UBOOT_DIR}/configs/qemu-quard-star_defconfig"
+    finish_build
+}
+
+build_busyboxconfig() {
+    cd "${SHELL_FOLDER}"
+    log_step "BusyBox menuconfig"
+    cd "${BUSYBOX_DIR}"
+    unset srctree objtree VPATH
+    if [ ! -f .config ]; then
+        make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" quard_star_defconfig
+    fi
+    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" menuconfig
+    cp .config configs/quard_star_defconfig
+    msg_info "BusyBox 配置已存回: ${BUSYBOX_DIR}/configs/quard_star_defconfig"
+    finish_build
+}
+
 pack_firmware() {
     cd "${SHELL_FOLDER}"
     log_step "Packing Firmware (fw.bin)"
@@ -913,6 +965,11 @@ usage() {
     echo "  firmware        Pack Firmware (fw.bin)"
     echo "  verify-driver   Verify driver .ko consistency (output/staging/image)"
     echo ""
+    echo "  Menuconfig targets (saves result back to tracked config):"
+    echo "  kernelconfig    Linux kernel menuconfig  -> project/configs/<ver>_config"
+    echo "  ubootconfig     U-Boot menuconfig        -> u-boot configs/qemu-quard-star_defconfig"
+    echo "  busyboxconfig   BusyBox menuconfig       -> busybox configs/quard_star_defconfig"
+    echo ""
     echo "  OpenAMP-specific targets:"
     echo "  submodules      Initialize Git submodules (libmetal, open-amp)"
     echo "  libmetal        Build libmetal library"
@@ -1020,6 +1077,15 @@ case "$TARGET" in
         ;;
     "verify-driver")
         verify_driver_deploy
+        ;;
+    "kernelconfig")
+        build_kernelconfig
+        ;;
+    "ubootconfig")
+        build_ubootconfig
+        ;;
+    "busyboxconfig")
+        build_busyboxconfig
         ;;
     # OpenAMP 相关目标
     "submodules")

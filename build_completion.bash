@@ -8,7 +8,7 @@ _build_sh_completion() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     
     # 定义第一层参数 (targets)
-    opts="all check clean qemu boot opensbi uboot kernel busybox freertos rootfs firmware driver verify-driver submodules libmetal openamp openamp-adapter"
+    opts="all check clean qemu boot opensbi uboot kernel busybox freertos rootfs firmware driver verify-driver kernelconfig ubootconfig busyboxconfig submodules libmetal openamp openamp-adapter"
     
     # 定义第二层参数 (modes)
     modes="incremental clean rebuild"
