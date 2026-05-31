@@ -867,6 +867,8 @@ build_buildroot() {
     finish_build
 }
 
+# 组装最终 rootfs.img：buildroot 基础 rootfs + overlay + 注入驱动 -> 2 分区(boot vfat / rootfs ext4)
+# 往 rootfs 加自己的东西(静态文件/程序/驱动)放哪，见 docs/rootfs-additions.md
 build_rootfs() {
     cd "${SHELL_FOLDER}"
     log_step "Building Root Filesystem Image"
@@ -960,16 +962,16 @@ EOF
     sudo umount "${TARGET_DIR}/rootfs" || true
     sudo losetup -d "${LOOP_DEV}"
 
-    # 拷贝完整 rootfs 到 sysroot，供应用层开发和调试使用
-    log_info "Copying complete rootfs to sysroot for application development..."
-    ${SUDO} rm -rf "${SYSROOT_DIR}"
-    ${SUDO} cp -a "${ROOTFS_DIR}/rootfs" "${SYSROOT_DIR}"
-    if [ -n "${SUDO}" ]; then
-        sudo chown -R "${SUDO_USER:-$(id -un)}:${SUDO_USER:-$(id -un)}" "${SYSROOT_DIR}" 2>/dev/null || true
+    # sysroot 指向 buildroot 的 staging（带头文件的开发 sysroot，交叉编译应用用 --sysroot=sysroot）
+    # 不再拷贝最终 rootfs（那份内容浏览用 output/rootfs/rootfs/ 即可，避免重复）
+    if [ -d "${BUILDROOT_OUT}/staging" ]; then
+        sudo rm -rf "${SYSROOT_DIR}" 2>/dev/null || rm -rf "${SYSROOT_DIR}" 2>/dev/null || true
+        ln -snf "${BUILDROOT_OUT}/staging" "${SYSROOT_DIR}"
+        log_info "sysroot -> ${BUILDROOT_OUT}/staging (开发 sysroot, 交叉编译用 --sysroot=${SYSROOT_DIR})"
     fi
 
     log_info "Rootfs image: ${IMG_FILE}"
-    log_info "Complete rootfs (for app dev): ${SYSROOT_DIR}/"
+    log_info "浏览最终 rootfs: ${ROOTFS_DIR}/rootfs/"
 }
 
 clean_all() {

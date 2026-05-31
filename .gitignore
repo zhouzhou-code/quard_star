@@ -20,6 +20,7 @@ qemu-8.0.2.tar.xz
 *.cmd*
 *.order
 *.mod*
+sysroot
 sysroot/
 
 # 工具链（体积巨大，放工程内 toolchain/，不纳入版本控制）
