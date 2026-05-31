@@ -1,0 +1,17 @@
+# Quard Star rootfs (buildroot) — 只产 rootfs，不产内核/opensbi/bootloader
+# 工具链用 buildroot 内置 glibc 工具链；rootfs userspace 与我们的内核(rv64gc/lp64d)兼容
+BR2_riscv=y
+BR2_RISCV_64=y
+
+# 内置 glibc 工具链（C++ 视需要开启）
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+
+# 内核头固定 6.6 (LTS，≤ 我们运行的内核 6.10；否则 glibc 会要求更高内核版本)
+BR2_KERNEL_HEADERS_6_6=y
+
+# busybox init（默认），rootfs 以 tar 输出，由 build.sh 解进我们的分区方案
+BR2_TARGET_ROOTFS_TAR=y
+
+# 叠加我们的 rootfs overlay（inittab/rcS/fstab/profile）
+# TOPDIR = source/buildroot，工程根的 project/ 在 ../../project
+BR2_ROOTFS_OVERLAY="$(TOPDIR)/../../project/rootfs_overlay"

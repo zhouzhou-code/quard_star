@@ -1,6 +1,7 @@
 output
 source/qemu-8.0.2/build
 source/linux/
+source/buildroot/
 qemu.log
 fw.bin
 .current_kernel_ver

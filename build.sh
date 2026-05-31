@@ -606,7 +606,7 @@ sync_driver_to_rootfs() {
         sudo_cmd="sudo"
         if ! sudo -n true 2>/dev/null; then
             log_info "rootfs.img exists; syncing drivers needs sudo, please enter password if prompted..."
-            if ! sudo -v; then
+            if ! { sudo -n true 2>/dev/null || sudo -v; }; then
                 log_error "Cannot sync driver modules into rootfs image without sudo"
                 return 1
             fi
@@ -713,7 +713,7 @@ verify_driver_deploy() {
         sudo_cmd="sudo"
         if ! sudo -n true 2>/dev/null; then
             log_info "rootfs.img verification needs sudo, please enter password if prompted..."
-            if ! sudo -v; then
+            if ! { sudo -n true 2>/dev/null || sudo -v; }; then
                 log_error "Cannot verify rootfs image without sudo"
                 return 1
             fi
@@ -797,6 +797,27 @@ build_busyboxconfig() {
     finish_build
 }
 
+build_buildrootconfig() {
+    cd "${SHELL_FOLDER}"
+    log_step "Buildroot menuconfig"
+    [ -f "${BUILDROOT_DIR}/Makefile" ] || { msg_error "buildroot 源码不存在: ${BUILDROOT_DIR}"; return 1; }
+    local clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    local run_as=""
+    if [ "$(id -u)" = "0" ]; then
+        [ -n "${SUDO_USER:-}" ] || { msg_error "请用普通用户运行 ./build.sh buildrootconfig"; return 1; }
+        run_as="sudo -u ${SUDO_USER}"
+    fi
+    ${run_as} mkdir -p "${BUILDROOT_OUT}"
+    [ -f "${BUILDROOT_OUT}/.config" ] || ${run_as} env PATH="${clean_path}" \
+        make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" BR2_DEFCONFIG="${BUILDROOT_DEFCONFIG}" defconfig
+    ${run_as} env PATH="${clean_path}" make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" menuconfig
+    # 存回我们的 defconfig(最小化)
+    ${run_as} env PATH="${clean_path}" \
+        make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" BR2_DEFCONFIG="${BUILDROOT_DEFCONFIG}" savedefconfig
+    msg_info "Buildroot defconfig 已存回: ${BUILDROOT_DEFCONFIG}"
+    finish_build
+}
+
 pack_firmware() {
     cd "${SHELL_FOLDER}"
     log_step "Packing Firmware (fw.bin)"
@@ -833,13 +854,66 @@ pack_firmware() {
     log_info "Firmware packed at ${OUTPUT_DIR}/fw/fw.bin"
 }
 
+build_buildroot() {
+    cd "${SHELL_FOLDER}"
+    log_step "Building rootfs via Buildroot"
+
+    # buildroot 拒绝带空格的 PATH(WSL 把 Windows PATH 导入会触发) —— 用干净 PATH
+    local clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    # 代理透传(若环境里设置了，供 buildroot 下载用)
+    local proxy_env=""
+    [ -n "${HTTP_PROXY:-}" ]  && proxy_env="$proxy_env HTTP_PROXY=${HTTP_PROXY} http_proxy=${HTTP_PROXY}"
+    [ -n "${HTTPS_PROXY:-}" ] && proxy_env="$proxy_env HTTPS_PROXY=${HTTPS_PROXY} https_proxy=${HTTPS_PROXY}"
+    [ -n "${ALL_PROXY:-}" ]   && proxy_env="$proxy_env ALL_PROXY=${ALL_PROXY} all_proxy=${ALL_PROXY}"
+
+    # buildroot 不能以 root 构建；若在 sudo 下则回落到 $SUDO_USER
+    local run_as=""
+    if [ "$(id -u)" = "0" ]; then
+        if [ -z "${SUDO_USER:-}" ]; then
+            msg_error "buildroot 不能以 root 构建。请直接用普通用户运行 ./build.sh（脚本会在 rootfs 阶段自行提权）"
+            return 1
+        fi
+        run_as="sudo -u ${SUDO_USER}"
+        msg_info "检测到 root，buildroot 将以用户 ${SUDO_USER} 身份构建"
+    fi
+
+    # 未找到 buildroot 源码则自动克隆(体积大、已 gitignore；联网经 proxy_env)
+    if [ ! -f "${BUILDROOT_DIR}/Makefile" ]; then
+        msg_info "未找到 buildroot 源码，正在克隆 ${BUILDROOT_VERSION} ..."
+        ${run_as} env PATH="${clean_path}" ${proxy_env} \
+            git clone --depth 1 --branch "${BUILDROOT_VERSION}" "${BUILDROOT_REPO}" "${BUILDROOT_DIR}" \
+            || { msg_error "buildroot 克隆失败(需要网络/代理)"; return 1; }
+    fi
+
+    ${run_as} mkdir -p "${BUILDROOT_OUT}"
+
+    if [ "${BUILD_MODE}" == "clean" ]; then
+        ${run_as} env PATH="${clean_path}" make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" clean
+        return 0
+    elif [ "${BUILD_MODE}" == "rebuild" ]; then
+        ${run_as} env PATH="${clean_path}" make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" clean
+    fi
+
+    # 生成/刷新 buildroot 配置
+    ${run_as} env PATH="${clean_path}" make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" \
+        BR2_DEFCONFIG="${BUILDROOT_DEFCONFIG}" defconfig
+
+    # 构建 rootfs（联网下载经 proxy_env）
+    ${run_as} env PATH="${clean_path}" ${proxy_env} \
+        make -C "${BUILDROOT_DIR}" O="${BUILDROOT_OUT}" -j"${JOBS}"
+
+    [ -f "${BUILDROOT_ROOTFS_TAR}" ] || { msg_error "buildroot 未产出 ${BUILDROOT_ROOTFS_TAR}"; return 1; }
+    msg_info "Buildroot rootfs: ${BUILDROOT_ROOTFS_TAR}"
+    finish_build
+}
+
 build_rootfs() {
     cd "${SHELL_FOLDER}"
     log_step "Building Root Filesystem Image"
 
     if [ "$(id -u)" != "0" ]; then
         log_info "需要 root 权限来生成根文件系统，请稍后输入密码..."
-        if ! sudo -v; then
+        if ! { sudo -n true 2>/dev/null || sudo -v; }; then
             log_error "提权失败或已取消，脚本退出。"
             exit 1
         fi
@@ -859,18 +933,28 @@ build_rootfs() {
         rm -f "${IMG_FILE}"
     fi
 
-    # 1. 拷贝 busybox 安装结果
-    cp -r "${OUTPUT_DIR}/busybox/"* "${ROOTFS_DIR}/rootfs/"
-
-    # 2. 拷贝 busybox 配置脚本
-    if [ -d "${BUSYBOX_ROOT_SCRIPT}" ]; then
-        cp -r "${BUSYBOX_ROOT_SCRIPT}/"* "${ROOTFS_DIR}/rootfs/"
+    # rootfs 内容填充：buildroot 解 tar / busybox 拷贝安装结果+overlay
+    # buildroot 的 tar 含 devnode 与 root 属主，需 sudo；故后续驱动注入/同步也用 $SUDO
+    local SUDO=""
+    if [ "${ROOTFS_BACKEND}" == "buildroot" ]; then
+        SUDO="sudo"
+        [ -f "${BUILDROOT_ROOTFS_TAR}" ] || { log_error "buildroot rootfs.tar 不存在，请先 ./build.sh buildroot（或设 ROOTFS_BACKEND=busybox）"; exit 1; }
+        log_info "从 buildroot 解包 rootfs ..."
+        sudo find "${ROOTFS_DIR}/rootfs" -mindepth 1 -delete 2>/dev/null || true
+        sudo tar -xf "${BUILDROOT_ROOTFS_TAR}" -C "${ROOTFS_DIR}/rootfs"
+    else
+        # 1. 拷贝 busybox 安装结果
+        cp -r "${OUTPUT_DIR}/busybox/"* "${ROOTFS_DIR}/rootfs/"
+        # 2. 拷贝 busybox 配置脚本(overlay)
+        if [ -d "${BUSYBOX_ROOT_SCRIPT}" ]; then
+            cp -r "${BUSYBOX_ROOT_SCRIPT}/"* "${ROOTFS_DIR}/rootfs/"
+        fi
     fi
 
     # 3. 拷贝驱动模块到 rootfs/driver/
-    mkdir -p "${ROOTFS_DIR}/rootfs/driver"
+    ${SUDO} mkdir -p "${ROOTFS_DIR}/rootfs/driver"
     if [ -d "${OUTPUT_DIR}/linux_driver" ] && [ "$(ls -A ${OUTPUT_DIR}/linux_driver/*.ko 2>/dev/null)" ]; then
-        cp -r "${OUTPUT_DIR}/linux_driver/"*.ko "${ROOTFS_DIR}/rootfs/driver/"
+        ${SUDO} cp -r "${OUTPUT_DIR}/linux_driver/"*.ko "${ROOTFS_DIR}/rootfs/driver/"
         log_info "Copied $(ls ${OUTPUT_DIR}/linux_driver/*.ko 2>/dev/null | wc -l) driver module(s) to rootfs"
     fi
 
@@ -928,8 +1012,11 @@ EOF
 
     # 拷贝完整 rootfs 到 sysroot，供应用层开发和调试使用
     log_info "Copying complete rootfs to sysroot for application development..."
-    rm -rf "${SYSROOT_DIR}"
-    cp -r "${ROOTFS_DIR}/rootfs" "${SYSROOT_DIR}"
+    ${SUDO} rm -rf "${SYSROOT_DIR}"
+    ${SUDO} cp -a "${ROOTFS_DIR}/rootfs" "${SYSROOT_DIR}"
+    if [ -n "${SUDO}" ]; then
+        sudo chown -R "${SUDO_USER:-$(id -un)}:${SUDO_USER:-$(id -un)}" "${SYSROOT_DIR}" 2>/dev/null || true
+    fi
 
     log_info "Rootfs image: ${IMG_FILE}"
     log_info "Complete rootfs (for app dev): ${SYSROOT_DIR}/"
@@ -962,6 +1049,7 @@ usage() {
     echo "  freertos        Build FreeRTOS (Trusted Domain)"
     echo "  driver          Build Linux Drivers (out-of-tree)"
     echo "  rootfs          Build Root Filesystem Image"
+    echo "  buildroot       Build rootfs via Buildroot (when ROOTFS_BACKEND=buildroot)"
     echo "  firmware        Pack Firmware (fw.bin)"
     echo "  verify-driver   Verify driver .ko consistency (output/staging/image)"
     echo ""
@@ -969,6 +1057,7 @@ usage() {
     echo "  kernelconfig    Linux kernel menuconfig  -> project/configs/<ver>_config"
     echo "  ubootconfig     U-Boot menuconfig        -> u-boot configs/qemu-quard-star_defconfig"
     echo "  busyboxconfig   BusyBox menuconfig       -> busybox configs/quard_star_defconfig"
+    echo "  buildrootconfig Buildroot menuconfig     -> project/configs/buildroot_quard_star_defconfig"
     echo ""
     echo "  OpenAMP-specific targets:"
     echo "  submodules      Initialize Git submodules (libmetal, open-amp)"
@@ -1024,7 +1113,11 @@ case "$TARGET" in
         build_freertos
         build_uboot
         build_kernel
-        build_busybox
+        if [ "${ROOTFS_BACKEND}" == "buildroot" ]; then
+            build_buildroot
+        else
+            build_busybox
+        fi
         build_driver
         pack_firmware
         build_rootfs
@@ -1062,6 +1155,10 @@ case "$TARGET" in
         build_busybox
         build_rootfs
         ;;
+    "buildroot")
+        build_buildroot
+        build_rootfs
+        ;;
     "freertos")
         build_freertos
         pack_firmware
@@ -1086,6 +1183,9 @@ case "$TARGET" in
         ;;
     "busyboxconfig")
         build_busyboxconfig
+        ;;
+    "buildrootconfig")
+        build_buildrootconfig
         ;;
     # OpenAMP 相关目标
     "submodules")

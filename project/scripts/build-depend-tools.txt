@@ -28,3 +28,10 @@ pkg-config --exists openssl,libssl-dev
 
 # ---- menuconfig (kernelconfig/ubootconfig/busyboxconfig 目标) ----
 pkg-config --exists ncursesw,libncurses-dev
+
+# ---- Buildroot rootfs 后端 (ROOTFS_BACKEND=buildroot 时需要) ----
+command -v cpio,cpio
+command -v unzip,unzip
+command -v rsync,rsync
+command -v bc,bc
+command -v file,file
