@@ -1764,7 +1764,9 @@ have_virtfs = get_option('virtfs') \
     .disable_auto_if(not have_tools and not have_system) \
     .allowed()
 
-have_virtfs_proxy_helper = targetos != 'darwin' and have_virtfs and have_tools
+# virtfs-proxy-helper 已弃用（QEMU 8.1+ 已移除），且需要一堆静态库(.a)才能链接。
+# 9p/virtfs 设备本身由 have_virtfs 单独控制，不依赖此 helper，故禁用之。
+have_virtfs_proxy_helper = false
 
 if get_option('block_drv_ro_whitelist') == ''
   config_host_data.set('CONFIG_BDRV_RO_WHITELIST', '')

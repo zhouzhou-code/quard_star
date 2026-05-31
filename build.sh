@@ -11,10 +11,12 @@ OUTPUT_DIR="${SHELL_FOLDER}/output"
 JOBS=24
 
 # Toolchains
-GLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc15-riscv64-unknown-linux-gnu
+# 工具链放在工程内的 toolchain/ 目录下（可用 TOOLCHAIN_DIR 环境变量覆盖）
+TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-${SHELL_FOLDER}/toolchain}"
+GLIB_ELF_CROSS_COMPILE_DIR="${TOOLCHAIN_DIR}/gcc15-riscv64-unknown-linux-gnu"
 GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-linux-gnu"
 
-NEWLIB_ELF_CROSS_COMPILE_DIR=/opt/gcc-riscv64-unknown-elf
+NEWLIB_ELF_CROSS_COMPILE_DIR="${TOOLCHAIN_DIR}/gcc-riscv64-unknown-elf"
 NEWLIB_ELF_CROSS_PREFIX="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-elf"
 
 # Project Paths (全部使用绝对路径)
@@ -378,7 +380,7 @@ build_libmetal() {
     cd build
 
     # 设置编译器路径
-    export PATH="/opt/gcc-riscv64-unknown-elf/bin:$PATH"
+    export PATH="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin:$PATH"
 
     # 使用 CMake 构建（FreeRTOS 配置）
     # 注意：暂时不编译 FreeRTOS system 层，等后续移植
@@ -431,7 +433,7 @@ build_openamp_lib() {
     cd cmake/build
 
     # 设置编译器路径
-    export PATH="/opt/gcc-riscv64-unknown-elf/bin:$PATH"
+    export PATH="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin:$PATH"
 
     # 使用 CMake 构建 - 使用 libmetal 的 generic 工具链
     cmake ../.. \

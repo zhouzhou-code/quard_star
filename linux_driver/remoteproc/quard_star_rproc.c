@@ -136,7 +136,7 @@ struct quard_star_rproc {
 	struct rproc *rproc;
 	void __iomem *mailbox_base;
 	int vq_irq;
-	void __iomem *rsc_table;
+	void *rsc_table;
 	size_t rsc_table_size;
 };
 
@@ -179,7 +179,7 @@ static int quard_star_carveout_unmap(struct rproc *rproc, struct rproc_mem_entry
 static int quard_star_rproc_start(struct rproc *rproc)
 {
 	struct quard_star_rproc *priv = rproc->priv;
-	dev_info(priv->dev, "Attach-Only mode: start() called, but should use attach\n");
+	dev_warn(priv->dev, "Attach-Only mode: start() should not be called, use attach\n");
 	
 	/* "Attach-Only" 模式：不应调用 start，返回成功即可 */
 	return 0;
@@ -193,7 +193,7 @@ static int quard_star_rproc_start(struct rproc *rproc)
 static int quard_star_rproc_stop(struct rproc *rproc)
 {
 	struct quard_star_rproc *priv = rproc->priv;
-	dev_info(priv->dev, "Attach-Only mode: not stopping FreeRTOS\n");
+	dev_dbg(priv->dev, "Attach-Only mode: not stopping FreeRTOS\n");
 	/* "Attach-Only"模式, 不停止FreeRTOS */
 	return 0;
 }
@@ -212,11 +212,8 @@ static void quard_star_rproc_kick(struct rproc *rproc, int vqid)
 		return;
 	}
 
-	/* Linux -> FreeRTOS: 写 RTOS_TRIG 触发 IRQ 51 */
+	/* Linux -> FreeRTOS: 写 RTOS_TRIG 触发 IRQ 51 (writel 自带隐式屏障) */
 	writel(1, priv->mailbox_base + MAILBOX_REG_RTOS_TRIG);
-
-	/* 内存屏障，确保写操作完成 */
-	mmiowb();
 
 	dev_dbg(priv->dev, "Kicked FreeRTOS via Mailbox (vq=%d)\n", vqid);
 }
@@ -234,54 +231,34 @@ static void quard_star_rproc_kick(struct rproc *rproc, int vqid)
 static int quard_star_rproc_attach(struct rproc *rproc)
 {
 	struct quard_star_rproc *priv = rproc->priv;
-	void __iomem *rsc_base;
-	u32 *vdev_status;
+	struct resource_table *table = priv->rsc_table;
+	struct fw_rsc_hdr *hdr;
+	struct fw_rsc_vdev *vdev;
 
 	dev_info(priv->dev, "Attaching to FreeRTOS remoteproc\n");
 
 	/*
-	 * 映射 Resource Table 以访问 vdev.status 字段
+	 * 通过 Resource Table 结构体定位 vdev.status 字段，
+	 * 复用 probe 阶段的 devm_memremap 映射，不再重复 ioremap。
 	 *
-	 * Resource Table 布局 (trusted_domain/bsp_include/resource_table.h):
-	 *   0x00: ver
-	 *   0x04: num
-	 *   0x08-0x0F: reserved
-	 *   0x10: offset[0]
-	 *   0x14: hdr.type
-	 *   0x18: vdev.id
-	 *   0x1C: vdev.notifyid
-	 *   0x20: vdev.dfeatures
-	 *   0x24: vdev.gfeatures
-	 *   0x28: vdev.config_len
-	 *   0x29: vdev.status  ← 我们需要修改这个字段
-	 *   0x2A: vdev.num_of_vrings
+	 * 布局: resource_table -> offset[0] -> fw_rsc_hdr -> fw_rsc_vdev
 	 */
-	rsc_base = ioremap_wc(QUARD_STAR_RPROC_RSC_PA, QUARD_STAR_RPROC_RSC_SIZE);
-	if (!rsc_base) {
-		dev_err(priv->dev, "Failed to map Resource Table for status update\n");
-		return -ENOMEM;
-	}
+	hdr = (void *)table + table->offset[0];
+	vdev = (struct fw_rsc_vdev *)hdr->data;
 
-	/* 指向 vdev.status 字段 (偏移 0x29) */
-	vdev_status = (u32 *)(rsc_base + 0x29);
-
-	dev_info(priv->dev, "Current vdev.status = 0x%x\n", readb(vdev_status));
+	dev_dbg(priv->dev, "Current vdev.status = 0x%x\n", vdev->status);
 
 	/*
 	 * 设置 DRIVER_OK 状态，通知 FreeRTOS:
 	 * "Linux VirtIO 驱动已就绪，可以开始通信"
 	 */
-	writeb(VIRTIO_CONFIG_S_DRIVER_OK, vdev_status);
-	mmiowb();  /* 内存屏障，确保写操作完成 */
+	vdev->status = VIRTIO_CONFIG_S_DRIVER_OK;
 
-	dev_info(priv->dev, "Set vdev.status = 0x%x (DRIVER_OK)\n", VIRTIO_CONFIG_S_DRIVER_OK);
+	/* 写屏障，确保 FreeRTOS 可见 */
+	wmb();
 
-	/*
-	 * 保持映射，detach 时清理
-	 * 注意：priv->rsc_table 在 get_loaded_rsc_table() 中已经映射
-	 * 这里我们再次映射是为了单独处理 status 更新
-	 */
-	iounmap(rsc_base);
+	dev_info(priv->dev, "Set vdev.status = 0x%x (DRIVER_OK)\n",
+		 VIRTIO_CONFIG_S_DRIVER_OK);
 
 	return 0;
 }
@@ -295,7 +272,7 @@ static int quard_star_rproc_detach(struct rproc *rproc)
 {
 	struct quard_star_rproc *priv = rproc->priv;
 
-	dev_info(priv->dev, "Detaching from FreeRTOS remoteproc\n");
+	dev_dbg(priv->dev, "Detaching from FreeRTOS remoteproc\n");
 
 	return 0;
 }
@@ -311,7 +288,7 @@ static int quard_star_rproc_prepare(struct rproc *rproc)
 	struct device *dev = rproc->dev.parent;
 	struct rproc_mem_entry *mem;
 
-	dev_info(dev, "Preparing remoteproc resources\n");
+	dev_dbg(dev, "Preparing remoteproc resources\n");
 
 	/*
 	 * 注册 vring0 的静态物理映射 (TX: FreeRTOS -> Linux)
@@ -329,8 +306,8 @@ static int quard_star_rproc_prepare(struct rproc *rproc)
 		return -ENOMEM;
 	}
 	rproc_add_carveout(rproc, mem);
-	dev_info(dev, "Registered vring0 carveout: PA=0x%pa, size=0x%x\n",
-		 &(dma_addr_t){QUARD_STAR_VRING0_PA}, QUARD_STAR_VRING_SIZE);
+	dev_dbg(dev, "Registered vring0 carveout: PA=0x%pa, size=0x%x\n",
+		&(dma_addr_t){QUARD_STAR_VRING0_PA}, QUARD_STAR_VRING_SIZE);
 
 	/*
 	 * 注册 vring1 的静态物理映射 (RX: Linux -> FreeRTOS)
@@ -347,8 +324,8 @@ static int quard_star_rproc_prepare(struct rproc *rproc)
 		return -ENOMEM;
 	}
 	rproc_add_carveout(rproc, mem);
-	dev_info(dev, "Registered vring1 carveout: PA=0x%pa, size=0x%x\n",
-		 &(dma_addr_t){QUARD_STAR_VRING1_PA}, QUARD_STAR_VRING_SIZE);
+	dev_dbg(dev, "Registered vring1 carveout: PA=0x%pa, size=0x%x\n",
+		&(dma_addr_t){QUARD_STAR_VRING1_PA}, QUARD_STAR_VRING_SIZE);
 
 	/*
 	 * vdev0buffer (RPMsg 数据 Buffer):
@@ -365,55 +342,35 @@ static int quard_star_rproc_prepare(struct rproc *rproc)
 		return -ENOMEM;
 	}
 	rproc_add_carveout(rproc, mem);
-	dev_info(dev, "Registered vdev0buffer carveout: PA=0x%pa, size=0x%zx\n",
-		 &(dma_addr_t){QUARD_STAR_RPMSG_BUF_PA}, QUARD_STAR_RPMSG_BUF_SIZE);
+	dev_dbg(dev, "Registered vdev0buffer carveout: PA=0x%pa, size=0x%x\n",
+		&(dma_addr_t){QUARD_STAR_RPMSG_BUF_PA}, QUARD_STAR_RPMSG_BUF_SIZE);
 
 	return 0;
 }
 
 /**
- * quard_star_rproc_get_loaded_rsc_table() -获取Resource Table
+ * quard_star_rproc_get_loaded_rsc_table() - 获取 Resource Table
  *
- * 从共享内存 (0xbf70c000) 读取 Resource Table
+ * 返回 probe 阶段已映射的 Resource Table 指针（devm_memremap 管理生命周期）
  */
 static struct resource_table *quard_star_rproc_get_loaded_rsc_table(struct rproc *rproc,
 								   size_t *rsc_table_size)
 {
 	struct quard_star_rproc *priv = rproc->priv;
-	struct resource_table *rsc_table;
-	void __iomem *rsc_base;
+	struct resource_table *table = priv->rsc_table;
 
-	if (!rsc_table_size) {
-		dev_err(priv->dev, "Invalid rsc_table_size pointer\n");
-		return ERR_PTR(-EINVAL);
-	}
-
-	/* 映射 Resource Table 物理内存 */
-	rsc_base = ioremap_wc(QUARD_STAR_RPROC_RSC_PA, QUARD_STAR_RPROC_RSC_SIZE);
-	if (!rsc_base) {
-		dev_err(priv->dev, "Failed to map Resource Table memory\n");
-		return ERR_PTR(-ENOMEM);
-	}
-
-	/* 验证 Resource Table 版本 */
-	rsc_table = (struct resource_table *)rsc_base;
-	if (rsc_table->ver != 1) {
+	if (table->ver != 1) {
 		dev_err(priv->dev, "Invalid Resource Table version: %u\n",
-			rsc_table->ver);
-		iounmap(rsc_base);
+			table->ver);
 		return ERR_PTR(-EINVAL);
 	}
 
-	/* 保存 Resource Table 信息 */
-	priv->rsc_table = rsc_table;
-	priv->rsc_table_size = QUARD_STAR_RPROC_RSC_SIZE;
 	*rsc_table_size = priv->rsc_table_size;
 
-	dev_info(priv->dev, "Resource Table found: ver=%u, num=%u entries\n",
-		 rsc_table->ver, rsc_table->num);
+	dev_dbg(priv->dev, "Resource Table: ver=%u, num=%u entries\n",
+		table->ver, table->num);
 
-	/* 返回指针（注意：此内存已映射，应在 detach 时解除映射） */
-	return rsc_table;
+	return table;
 }
 
 /* ============================================================================
@@ -491,7 +448,7 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	struct quard_star_rproc *priv;
 	int ret, irq;
 
-	dev_info(dev, "Probing Quard Star remoteproc driver\n");
+	dev_dbg(dev, "Probing Quard Star remoteproc driver\n");
 
 	/*
 	 * 1) 分配驱动私有数据（driver context）
@@ -514,8 +471,6 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_warn(dev, "No DMA memory pool configured: %d\n", ret);
 		dev_warn(dev, "virtio_rpmsg_bus may fail to allocate buffers\n");
-	} else {
-		dev_info(dev, "DMA memory pool initialized\n");
 	}
 
 	/*
@@ -532,7 +487,22 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	}
 
 	/*
-	 * 4) 获取 IRQ
+	 * 4) 映射 Resource Table 共享内存
+	 * 使用 devm_memremap 确保设备移除时自动释放，
+	 * 映射结果在 get_loaded_rsc_table / attach 中复用。
+	 */
+	priv->rsc_table = devm_memremap(dev, QUARD_STAR_RPROC_RSC_PA,
+					QUARD_STAR_RPROC_RSC_SIZE, MEMREMAP_WC);
+	if (IS_ERR_OR_NULL(priv->rsc_table)) {
+		dev_err(dev, "Failed to map Resource Table at 0x%x\n",
+			QUARD_STAR_RPROC_RSC_PA);
+		ret = priv->rsc_table ? PTR_ERR(priv->rsc_table) : -ENOMEM;
+		goto err_dma_mem;
+	}
+	priv->rsc_table_size = QUARD_STAR_RPROC_RSC_SIZE;
+
+	/*
+	 * 5) 获取 IRQ
 	 * platform_get_irq() 返回的是 Linux 虚拟 IRQ 号，
 	 * 硬件 PLIC 中断号来自 DTS 的 interrupts 字段。
 	 */
@@ -540,13 +510,13 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	if (irq < 0) {
 		/* 如果设备树没有指定，使用硬编码的 IRQ 50 */
 		irq = QUARD_STAR_RPROC_VQ_IRQ;
-		dev_info(dev, "Using default VQ IRQ: %d\n", irq);
+		dev_warn(dev, "DTS IRQ not found, using default VQ IRQ: %d\n", irq);
 	}
 
 	priv->vq_irq = irq;
 
 	/*
-	 * 5) 注册 Mailbox IRQ 处理器（threaded IRQ）
+	 * 6) 注册 Mailbox IRQ 处理器（threaded IRQ）
 	 * 原因：rproc_vq_interrupt -> virtqueue 回调路径可能睡眠（例如 mutex_lock），
 	 * 硬 IRQ 上下文禁止睡眠，因此需要 threaded IRQ。
 	 *
@@ -563,23 +533,20 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 		goto err_dma_mem;
 	}
 
-	dev_info(dev, "Mailbox IRQ %d registered\n", irq);
+	dev_dbg(dev, "Mailbox IRQ %d registered\n", irq);
 
 	/* 使能 Linux 侧 mailbox 中断通道，并清理历史 pending */
 	writel(1, priv->mailbox_base + MAILBOX_REG_LINUX_ACK);
 	writel(1, priv->mailbox_base + MAILBOX_REG_LINUX_IE);
 
 	/* 分配并注册 remoteproc 实例 (使用 managed API) */
-	dev_info(dev, "Calling devm_rproc_alloc...\n");
 	priv->rproc = devm_rproc_alloc(dev, "quard-star-rproc",
-				       &quard_star_rproc_ops, NULL,
-				       sizeof(*priv));
+				       &quard_star_rproc_ops, NULL, 0);
 	if (!priv->rproc) {
 		dev_err(dev, "Failed to allocate remoteproc instance\n");
 		ret = -ENOMEM;
 		goto err_dma_mem;
 	}
-	dev_info(dev, "devm_rproc_alloc succeeded\n");
 
 	priv->rproc->priv = priv;
 	priv->rproc->has_iommu = false; /* 无需 IOMMU */
@@ -589,17 +556,13 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	priv->rproc->state = RPROC_DETACHED;
 
 	/* 注册 remoteproc 设备 */
-	dev_info(dev, "Calling devm_rproc_add...\n");
 	ret = devm_rproc_add(dev, priv->rproc);
 	if (ret) {
 		dev_err(dev, "Failed to register remoteproc: %d\n", ret);
-		printk(KERN_ERR "quard_star_rproc: devm_rproc_add failed: %d\n", ret);
 		goto err_dma_mem;
 	}
 
-	dev_info(dev, "Remoteproc device registered: /sys/class/remoteproc/remoteproc0/\n");
-	dev_info(dev, "Remoteproc driver initialized successfully\n");
-	printk(KERN_INFO "quard_star_rproc: Driver init complete\n");
+	dev_info(dev, "Remoteproc driver initialized (IRQ=%d, state=DETACHED)\n", irq);
 
 	return 0;
 
@@ -615,12 +578,7 @@ static int quard_star_rproc_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 
-	dev_info(dev, "Removing Quard Star remoteproc driver\n");
-
-	/* 清理 DMA 内存池 */
 	of_reserved_mem_device_release(dev);
-
-	/* remoteproc 实例由 devm_* 自动管理，无需手动释放 */
 
 	return 0;
 }
