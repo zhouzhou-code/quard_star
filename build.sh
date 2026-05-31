@@ -277,33 +277,6 @@ build_kernel() {
     log_info "Kernel Image copied to ${OUTPUT_DIR}/linux_kernel/Image"
 }
 
-build_busybox() {
-    cd "${SHELL_FOLDER}"
-    log_step "Building BusyBox"
-    check_dir "${OUTPUT_DIR}/busybox"
-    
-    cd "${BUSYBOX_DIR}"
-    if [ "${BUILD_MODE}" == "clean" ]; then
-        make distclean
-        return 0
-    elif [ "${BUILD_MODE}" == "rebuild" ]; then
-        make distclean
-    fi
-    
-    unset srctree objtree VPATH
-    
-    if [ ! -f ".config" ]; then
-        make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" quard_star_defconfig
-    fi
-    
-    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" -j"${JOBS}"
-    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" CONFIG_PREFIX="${OUTPUT_DIR}/busybox" install
-    
-    mkdir -p "${OUTPUT_DIR}/busybox/proc"
-    mkdir -p "${OUTPUT_DIR}/busybox/sys"
-    mkdir -p "${OUTPUT_DIR}/busybox/dev"
-    mkdir -p "${OUTPUT_DIR}/busybox/tmp"
-}
 
 build_freertos() {
     cd "${SHELL_FOLDER}"
@@ -415,7 +388,7 @@ build_libmetal() {
         -DCROSS_PREFIX=riscv64-unknown-elf- \
         -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
         -DCMAKE_INSTALL_PREFIX="$(pwd)/../lib" \
-        -DCMAKE_C_FLAGS="-I${SHELL_FOLDER}/${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
+        -DCMAKE_C_FLAGS="-I${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
         -DMETAL_BUILD_SHARED_LIBS=OFF \
@@ -783,19 +756,6 @@ build_ubootconfig() {
     finish_build
 }
 
-build_busyboxconfig() {
-    cd "${SHELL_FOLDER}"
-    log_step "BusyBox menuconfig"
-    cd "${BUSYBOX_DIR}"
-    unset srctree objtree VPATH
-    if [ ! -f .config ]; then
-        make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" quard_star_defconfig
-    fi
-    make ARCH=riscv CROSS_COMPILE="${GLIB_ELF_CROSS_PREFIX}-" menuconfig
-    cp .config configs/quard_star_defconfig
-    msg_info "BusyBox 配置已存回: ${BUSYBOX_DIR}/configs/quard_star_defconfig"
-    finish_build
-}
 
 build_buildrootconfig() {
     cd "${SHELL_FOLDER}"
@@ -933,23 +893,13 @@ build_rootfs() {
         rm -f "${IMG_FILE}"
     fi
 
-    # rootfs 内容填充：buildroot 解 tar / busybox 拷贝安装结果+overlay
-    # buildroot 的 tar 含 devnode 与 root 属主，需 sudo；故后续驱动注入/同步也用 $SUDO
-    local SUDO=""
-    if [ "${ROOTFS_BACKEND}" == "buildroot" ]; then
-        SUDO="sudo"
-        [ -f "${BUILDROOT_ROOTFS_TAR}" ] || { log_error "buildroot rootfs.tar 不存在，请先 ./build.sh buildroot（或设 ROOTFS_BACKEND=busybox）"; exit 1; }
-        log_info "从 buildroot 解包 rootfs ..."
-        sudo find "${ROOTFS_DIR}/rootfs" -mindepth 1 -delete 2>/dev/null || true
-        sudo tar -xf "${BUILDROOT_ROOTFS_TAR}" -C "${ROOTFS_DIR}/rootfs"
-    else
-        # 1. 拷贝 busybox 安装结果
-        cp -r "${OUTPUT_DIR}/busybox/"* "${ROOTFS_DIR}/rootfs/"
-        # 2. 拷贝 busybox 配置脚本(overlay)
-        if [ -d "${BUSYBOX_ROOT_SCRIPT}" ]; then
-            cp -r "${BUSYBOX_ROOT_SCRIPT}/"* "${ROOTFS_DIR}/rootfs/"
-        fi
-    fi
+    # rootfs 内容填充：解 buildroot 的 rootfs.tar 入暂存区
+    # tar 含 devnode 与 root 属主，需 sudo；故后续驱动注入/同步也用 $SUDO
+    local SUDO="sudo"
+    [ -f "${BUILDROOT_ROOTFS_TAR}" ] || { log_error "buildroot rootfs.tar 不存在，请先 ./build.sh buildroot"; exit 1; }
+    log_info "从 buildroot 解包 rootfs ..."
+    sudo find "${ROOTFS_DIR}/rootfs" -mindepth 1 -delete 2>/dev/null || true
+    sudo tar -xf "${BUILDROOT_ROOTFS_TAR}" -C "${ROOTFS_DIR}/rootfs"
 
     # 3. 拷贝驱动模块到 rootfs/driver/
     ${SUDO} mkdir -p "${ROOTFS_DIR}/rootfs/driver"
@@ -1030,7 +980,6 @@ clean_all() {
     cd "${UBOOT_DIR}" && make distclean
     cd "${KERNEL_DIR}" && make distclean
     cd "${OPENSBI_DIR}" && make distclean
-    cd "${BUSYBOX_DIR}" && make distclean
     cd "${FREERTOS_DIR}" && make clean
 }
 
@@ -1045,18 +994,16 @@ usage() {
     echo "  opensbi         Build OpenSBI"
     echo "  uboot           Build U-Boot"
     echo "  kernel          Build Linux Kernel"
-    echo "  busybox         Build BusyBox"
     echo "  freertos        Build FreeRTOS (Trusted Domain)"
     echo "  driver          Build Linux Drivers (out-of-tree)"
-    echo "  rootfs          Build Root Filesystem Image"
-    echo "  buildroot       Build rootfs via Buildroot (when ROOTFS_BACKEND=buildroot)"
+    echo "  rootfs          Build Root Filesystem Image (from buildroot rootfs.tar)"
+    echo "  buildroot       Build rootfs via Buildroot"
     echo "  firmware        Pack Firmware (fw.bin)"
     echo "  verify-driver   Verify driver .ko consistency (output/staging/image)"
     echo ""
     echo "  Menuconfig targets (saves result back to tracked config):"
     echo "  kernelconfig    Linux kernel menuconfig  -> project/configs/<ver>_config"
     echo "  ubootconfig     U-Boot menuconfig        -> u-boot configs/qemu-quard-star_defconfig"
-    echo "  busyboxconfig   BusyBox menuconfig       -> busybox configs/quard_star_defconfig"
     echo "  buildrootconfig Buildroot menuconfig     -> project/configs/buildroot_quard_star_defconfig"
     echo ""
     echo "  OpenAMP-specific targets:"
@@ -1113,11 +1060,7 @@ case "$TARGET" in
         build_freertos
         build_uboot
         build_kernel
-        if [ "${ROOTFS_BACKEND}" == "buildroot" ]; then
-            build_buildroot
-        else
-            build_busybox
-        fi
+        build_buildroot
         build_driver
         pack_firmware
         build_rootfs
@@ -1151,10 +1094,6 @@ case "$TARGET" in
         build_kernel
         build_rootfs
         ;;
-    "busybox")
-        build_busybox
-        build_rootfs
-        ;;
     "buildroot")
         build_buildroot
         build_rootfs
@@ -1180,9 +1119,6 @@ case "$TARGET" in
         ;;
     "ubootconfig")
         build_ubootconfig
-        ;;
-    "busyboxconfig")
-        build_busyboxconfig
         ;;
     "buildrootconfig")
         build_buildrootconfig
