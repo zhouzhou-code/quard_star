@@ -1,88 +1,114 @@
 #!/bin/bash
-set -e
+set -eE   # -E: 让 ERR trap 在函数内部也生效
 
 # ==============================================================================
 # Configuration
 # ==============================================================================
 # 获取脚本所在的绝对路径，作为整个工程的根基
 SHELL_FOLDER=$(cd "$(dirname "$0")";pwd)
-OUTPUT_DIR="${SHELL_FOLDER}/output"
-#JOBS=$(nproc)
-JOBS=24
+SDK_ROOT_DIR="${SHELL_FOLDER}"
 
-# Toolchains
-# 工具链放在工程内的 toolchain/ 目录下（可用 TOOLCHAIN_DIR 环境变量覆盖）
-TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-${SHELL_FOLDER}/toolchain}"
-GLIB_ELF_CROSS_COMPILE_DIR="${TOOLCHAIN_DIR}/gcc15-riscv64-unknown-linux-gnu"
-GLIB_ELF_CROSS_PREFIX="${GLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-linux-gnu"
-
-NEWLIB_ELF_CROSS_COMPILE_DIR="${TOOLCHAIN_DIR}/gcc-riscv64-unknown-elf"
-NEWLIB_ELF_CROSS_PREFIX="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin/riscv64-unknown-elf"
-
-# Project Paths (全部使用绝对路径)
-QEMU_DIR="${SHELL_FOLDER}/qemu-8.0.2"
-BOOT_DIR="${SHELL_FOLDER}/boot"
-OPENSBI_DIR="${SHELL_FOLDER}/opensbi-1.2"
-UBOOT_DIR="${SHELL_FOLDER}/u-boot-2026.01"
-KERNEL_DIR="${SHELL_FOLDER}/linux"
-BUSYBOX_DIR="${SHELL_FOLDER}/busybox-1.36.1"
-FREERTOS_DIR="${SHELL_FOLDER}/trusted_domain"
-DTS_DIR="${SHELL_FOLDER}/dts"
-BUSYBOX_ROOT_SCRIPT="${SHELL_FOLDER}/busybox_root_script"
-LINUX_DRIVER_DIR="${SHELL_FOLDER}/linux_driver"
-SYSROOT_DIR="${SHELL_FOLDER}/sysroot"
-
-# OpenAMP Paths (新增)
-THIRD_PARTY_DIR="${SHELL_FOLDER}/third_party"
-LIBMETAL_DIR="${THIRD_PARTY_DIR}/libmetal"
-OPENAMP_DIR="${THIRD_PARTY_DIR}/open-amp"
-# FREERTOS_APP_DIR 已经合并到 trusted_domain，使用新的路径
-TRUSTED_DOMAIN_DIR="${SHELL_FOLDER}/trusted_domain"
-OPENAMP_ADAPTER_DIR="${TRUSTED_DOMAIN_DIR}/openamp_adapter"
-BSP_INCLUDE_DIR="${TRUSTED_DOMAIN_DIR}/bsp_include"
-
-# FreeRTOS/裸机编译选项（用于 OpenAMP 适配层）
-CFLAGS_FREERTOS="-march=rv64imafdcv -mabi=lp64d -mcmodel=medany \
-                 -ffunction-sections -fdata-sections \
-                 -Wall -Wextra \
-                 -I${OPENAMP_ADAPTER_DIR}/include \
-                 -I${BSP_INCLUDE_DIR} \
-                 -I${LIBMETAL_DIR}/lib/include \
-                 -I${OPENAMP_DIR}/lib/include \
-                 -I${TRUSTED_DOMAIN_DIR} \
-                 -I${TRUSTED_DOMAIN_DIR}/FreeRTOS-Kernel-v10.4.3/include \
-                 -I${TRUSTED_DOMAIN_DIR}/FreeRTOS-Kernel-v10.4.3/portable/GCC/RISC-V \
-                 -DFREERTOS -O2 -g"
-
-# 采用patch方式管理linux kernel (杜绝 ../ 相对路径，全部换成绝对路径)
-KERNEL_VER="v6.10" #v6.10 v5.10
-PATCH_FILE="${SHELL_FOLDER}/linux_mypatches/quard_star_linux_${KERNEL_VER}.patch"
-CONFIG_FILE="${SHELL_FOLDER}/linux_myconfigs/${KERNEL_VER}_config"
-# 用一个隐藏文件记录当前 Linux 目录处于哪个版本
-VERSION_MARKER="${SHELL_FOLDER}/.current_kernel_ver"
+# 载入板级/构建配置（所有路径、工具链、内核版本、固件打包布局都在这里）
+BOARD_CONFIG="${SHELL_FOLDER}/board.config"
+if [ ! -f "${BOARD_CONFIG}" ]; then
+    echo -e "\033[31m[ERROR] 未找到配置文件: ${BOARD_CONFIG}\033[0m"
+    exit 1
+fi
+source "${BOARD_CONFIG}"
 
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
 
+# ---- 彩色输出 ----
+C_NORMAL="\033[0m"; C_RED="\033[31m"; C_GREEN="\033[32m"; C_YELLOW="\033[33m"; C_CYAN="\033[36m"
+
+msg_info()  { echo -e "${C_GREEN}[build.sh:info] $1${C_NORMAL}"; }
+msg_warn()  { echo -e "${C_YELLOW}[build.sh:warn] $1${C_NORMAL}"; }
+msg_error() { echo -e "${C_RED}[build.sh:error] $1${C_NORMAL}"; }
+
+# 兼容旧调用名
+log_info()  { msg_info "$1"; }
+log_warn()  { msg_warn "$1"; }
+log_error() { msg_error "$1"; }
+
 log_step() {
     local component=$1
     local mode_str=$(echo "$BUILD_MODE" | tr '[:lower:]' '[:upper:]')
-    echo -e "\033[36m\n------------------------- [${mode_str}] ${component} -------------------------\033[0m"
+    echo -e "${C_CYAN}\n------------------------- [${mode_str}] ${component} -------------------------${C_NORMAL}"
 }
 
-log_info() {
-    echo -e "\033[32m[INFO] $1\033[0m"
+# 出错时打印「哪个函数 / 哪一行 / 哪条命令」失败（配合 set -eE）
+err_handler() {
+    local ret=$?
+    [ "$ret" -eq 0 ] && return
+    msg_error "构建失败 (退出码 $ret)"
+    msg_error "  函数: ${FUNCNAME[1]:-main}"
+    msg_error "  位置: ${BASH_SOURCE[1]:-$0}:${BASH_LINENO[0]}"
+    msg_error "  命令: ${BASH_COMMAND}"
+    exit "$ret"
 }
+trap 'err_handler' ERR
 
-log_error() {
-    echo -e "\033[31m[ERROR] $1\033[0m"
+finish_build() {
+    msg_info "${FUNCNAME[1]} 完成。"
 }
 
 check_dir() {
     if [ ! -d "$1" ]; then
         mkdir -p "$1"
     fi
+}
+
+# 检测主机构建依赖（清单: project/scripts/build-depend-tools.txt）
+build_check() {
+    log_step "Checking host build dependencies"
+    local deps_file="${PROJECT_DIR}/scripts/build-depend-tools.txt"
+    if [ ! -f "$deps_file" ]; then
+        msg_warn "依赖清单不存在: $deps_file，跳过检测"
+        return 0
+    fi
+    local missing="" line cmd pkg
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        [ -z "$line" ] && continue
+        cmd="${line%,*}"
+        pkg="${line##*,}"
+        if eval "$cmd" >/dev/null 2>&1; then
+            echo -e "  ${C_GREEN}[OK]${C_NORMAL}  $cmd"
+        else
+            echo -e "  ${C_RED}[缺]${C_NORMAL}  $cmd  ->  $pkg"
+            case " $missing " in *" $pkg "*) ;; *) missing="$missing $pkg";; esac
+        fi
+    done < "$deps_file"
+    if [ -n "$missing" ]; then
+        msg_error "缺少主机依赖，请先安装："
+        echo -e "    ${C_YELLOW}sudo apt install -y$missing${C_NORMAL}"
+        return 1
+    fi
+    msg_info "主机依赖检测通过"
+}
+
+# 检测交叉工具链是否就位且可运行（捕获 libmpc 那类缺运行库的情况）
+check_toolchain() {
+    local ok=1 pfx gcc
+    for pfx in "${GLIB_ELF_CROSS_PREFIX}" "${NEWLIB_ELF_CROSS_PREFIX}"; do
+        gcc="${pfx}-gcc"
+        if [ ! -x "$gcc" ]; then
+            msg_error "未找到交叉编译器: $gcc"
+            msg_info  "请把工具链放到 ${TOOLCHAIN_DIR}/ 下，或设置 TOOLCHAIN_DIR 环境变量"
+            ok=0; continue
+        fi
+        if ! "$gcc" --version >/dev/null 2>&1; then
+            msg_error "交叉编译器存在但无法运行: $gcc"
+            msg_info  "通常是缺少运行库，常见: sudo apt install -y libmpc3"
+            "$gcc" --version 2>&1 | head -1 | sed 's/^/        /'
+            ok=0
+        fi
+    done
+    [ "$ok" -eq 1 ] || return 1
+    msg_info "工具链检测通过 (gcc $(${GLIB_ELF_CROSS_PREFIX}-gcc -dumpversion 2>/dev/null))"
 }
 
 # ==============================================================================
@@ -193,7 +219,7 @@ build_kernel() {
     
     if [ ! -d "${KERNEL_DIR}" ]; then
         echo "[INFO] 未检测到源码，正在拉取 Linux..."
-        git clone --reference "${SHELL_FOLDER}/linux" -b $KERNEL_VER https://mirrors.tuna.tsinghua.edu.cn/git/linux.git "${KERNEL_DIR}"
+        git clone -b $KERNEL_VER https://mirrors.tuna.tsinghua.edu.cn/git/linux.git "${KERNEL_DIR}"
     fi
 
     cd "${KERNEL_DIR}"
@@ -725,17 +751,33 @@ pack_firmware() {
     check_dir "${OUTPUT_DIR}/fw"
     cd "${OUTPUT_DIR}/fw"
     
-    rm -rf fw.bin
-    dd if=/dev/zero of=fw.bin bs=1k count=32k status=none
-    
-    dd of=fw.bin bs=1k conv=notrunc seek=0 if="${OUTPUT_DIR}/lowlevelboot/lowlevel_fw.bin" status=none
-    dd of=fw.bin bs=1k conv=notrunc seek=512 if="${OUTPUT_DIR}/opensbi/quard_star_sbi.dtb" status=none
-    dd of=fw.bin bs=1k conv=notrunc seek=1024 if="${OUTPUT_DIR}/uboot/quard_star_uboot.dtb" status=none
-    dd of=fw.bin bs=1k conv=notrunc seek=2048 if="${OUTPUT_DIR}/opensbi/fw_jump.bin" status=none
-    dd of=fw.bin bs=1k conv=notrunc seek=3072 if="${OUTPUT_DIR}/trusted_domain/resource_table.bin" status=none
-    dd of=fw.bin bs=1k conv=notrunc seek=4096 if="${OUTPUT_DIR}/trusted_domain/trusted_fw.bin" status=none
-    dd of=fw.bin bs=1k conv=notrunc seek=8192 if="${OUTPUT_DIR}/uboot/u-boot.bin" status=none
-    
+    rm -f fw.bin
+    dd if=/dev/zero of=fw.bin bs=1k count="${FW_SIZE_KB}" status=none
+
+    # 按 board.config 里的声明式 FW_LAYOUT 逐个写入，并做越界/重叠校验
+    local prev_end=0 item off rel src sz_kb
+    for item in "${FW_LAYOUT[@]}"; do
+        off="${item%%:*}"
+        rel="${item#*:}"
+        src="${OUTPUT_DIR}/${rel}"
+        if [ ! -f "$src" ]; then
+            msg_error "固件部件缺失: $src  (布局项: ${item})"
+            return 1
+        fi
+        sz_kb=$(( ( $(stat -c %s "$src") + 1023 ) / 1024 ))
+        if [ "$off" -lt "$prev_end" ]; then
+            msg_error "布局重叠: ${rel} 偏移 ${off}K < 上一部件结束 ${prev_end}K"
+            return 1
+        fi
+        if [ $(( off + sz_kb )) -gt "$FW_SIZE_KB" ]; then
+            msg_error "越界: ${rel} (${off}K + ${sz_kb}K) 超过 fw.bin 总大小 ${FW_SIZE_KB}K"
+            return 1
+        fi
+        dd of=fw.bin bs=1k conv=notrunc seek="${off}" if="$src" status=none
+        printf "  %-36s @ %6sK  (%4sK)\n" "$rel" "$off" "$sz_kb"
+        prev_end=$(( off + sz_kb ))
+    done
+
     log_info "Firmware packed at ${OUTPUT_DIR}/fw/fw.bin"
 }
 
@@ -857,6 +899,7 @@ usage() {
     echo "Usage: $0 [target] [mode]"
     echo "Targets:"
     echo "  all             Build everything (default)"
+    echo "  check           Check host build deps & cross-toolchain"
     echo "  clean           Clean all build artifacts and source directories"
     echo "  qemu            Build QEMU"
     echo "  boot            Build LowLevelBoot"
@@ -909,8 +952,15 @@ else
     exit 1
 fi
 
+# 构建类目标开跑前自动校验交叉工具链（help/check/clean 跳过）
+case "$TARGET" in
+    help|check|clean) : ;;
+    *) check_toolchain || exit 1 ;;
+esac
+
 case "$TARGET" in
     "all")
+        build_check || exit 1
         build_qemu
         build_lowlevelboot
         build_opensbi
@@ -921,6 +971,13 @@ case "$TARGET" in
         build_driver
         pack_firmware
         build_rootfs
+        ;;
+    "check")
+        rc=0
+        build_check || rc=1
+        check_toolchain || rc=1
+        if [ $rc -eq 0 ]; then msg_info "全部检测通过 ✓"; else msg_error "存在缺失项，请按上面提示安装后重试"; fi
+        exit $rc
         ;;
     "clean")
         clean_all

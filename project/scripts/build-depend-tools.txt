@@ -1,0 +1,27 @@
+# ==============================================================================
+# 主机构建依赖检测清单   (被 build.sh 的 build_check 读取)
+# 格式:  检测命令,apt包名
+#   - 检测命令退出码为 0 视为已安装
+#   - 缺失时 build_check 会汇总打印一条 sudo apt install 命令
+# ==============================================================================
+
+# ---- 基础构建工具 ----
+command -v make,build-essential
+command -v gcc,build-essential
+command -v ninja,ninja-build
+command -v cmake,cmake
+command -v pkg-config,pkg-config
+command -v bison,bison
+command -v flex,flex
+
+# ---- 设备树 / 文件系统 ----
+command -v dtc,device-tree-compiler
+command -v mkfs.vfat,dosfstools
+
+# ---- QEMU 依赖库 (pkg-config 探测) ----
+pkg-config --exists glib-2.0,libglib2.0-dev
+pkg-config --exists pixman-1,libpixman-1-dev
+pkg-config --exists gtk+-3.0,libgtk-3-dev
+
+# ---- U-Boot 工具依赖 ----
+pkg-config --exists openssl,libssl-dev

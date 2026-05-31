@@ -1,10 +1,13 @@
 output
-qemu-8.0.2/build
-linux/
+source/qemu-8.0.2/build
+source/linux/
 qemu.log
+fw.bin
+.current_kernel_ver
 opensbi-0.9
 *.elf
-*.mapqemu-8.0.2.tar.xz
+*.map
+qemu-8.0.2.tar.xz
 .trae
 .vscode
 
