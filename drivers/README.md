@@ -1,5 +1,9 @@
 # Quard Star Linux 驱动开发框架
 
+> 本目录全部是**树外（out-of-tree）内核模块**：独立于内核源码树编译，由 `build.sh build_driver`
+> 用 `-C $(KERNELDIR) M=$(模块目录) modules` 编出 `.ko`，再注入 rootfs 的 `/driver/`。
+> 每个子目录(remoteproc/rpmsg_test/mailbox_test/amp_ipc)是一个独立模块，含自己的 Makefile。
+
 ## 📁 目录结构
 
 ```

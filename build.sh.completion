@@ -1,6 +1,6 @@
-# build_completion.bash
-
-# 定义一个函数，用于tab补全build.sh脚本的参数，在终端中source build_completion.bash后即可使用
+# build.sh.completion —— build.sh 的 bash tab 补全
+# 已在 ~/.bashrc 中 source（新开终端自动生效，无需手动 source）。
+# 手动启用一次: source /home/zms/quard_star/build.sh.completion
 _build_sh_completion() {
     local cur prev opts modes
     COMPREPLY=()

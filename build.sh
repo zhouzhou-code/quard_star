@@ -1004,7 +1004,7 @@ usage() {
     echo "  verify-driver   Verify driver .ko consistency (output/staging/image)"
     echo ""
     echo "  Menuconfig targets (saves result back to tracked config):"
-    echo "  kernelconfig    Linux kernel menuconfig  -> project/configs/<ver>_config"
+    echo "  kernelconfig    Linux kernel menuconfig  -> project/configs/kernel-<ver>_defconfig"
     echo "  ubootconfig     U-Boot menuconfig        -> u-boot configs/qemu-quard-star_defconfig"
     echo "  buildrootconfig Buildroot menuconfig     -> project/configs/buildroot_quard_star_defconfig"
     echo ""

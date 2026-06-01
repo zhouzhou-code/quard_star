@@ -27,3 +27,6 @@ sysroot/
 toolchain/
 # Claude Code 本地配置/记忆
 .claude/
+# OpenAMP 上游库(裸机, 体积大且为残留, 不纳入仓库; 同 buildroot/linux)
+source/third_party/libmetal/
+source/third_party/open-amp/
