@@ -5,7 +5,7 @@
 ```
 buildroot 基础 rootfs (rootfs.tar)         ← busybox + glibc + 本 overlay
         +  本目录 overlay (BR2_ROOTFS_OVERLAY)  ← 静态文件直接覆盖到 /
-        +  注入 drivers/*.ko  ->  /driver/      ← build_driver 编出的内核模块
+        +  注入 project/drivers/*.ko -> /driver/  ← build_driver 编出的内核模块
         =>  打包进 rootfs.img 的 ext4 分区(p2)
 boot 分区(p1, vfat): kernel Image + quard_star.dtb + boot.scr
 ```
@@ -15,7 +15,7 @@ boot 分区(p1, vfat): kernel Image + quard_star.dtb + boot.scr
 | 你要加的 | 放哪 / 怎么做 | 说明 |
 |---|---|---|
 | 静态文件：配置/脚本/预编译二进制 | **直接放本目录** `project/rootfs_overlay/`，按目标路径建子目录（如 `etc/xxx`、`usr/bin/xxx`） | buildroot 通过 `BR2_ROOTFS_OVERLAY` 原样覆盖到 rootfs 根，无需改 build.sh |
-| 内核驱动模块 `.ko` | 放 `drivers/<名字>/`（带 Makefile） | `build_driver` 自动编译并注入到 rootfs 的 `/driver/` |
+| 内核驱动模块 `.ko` | 放 `project/drivers/<名字>/`（带 Makefile） | `build_driver` 自动编译并注入到 rootfs 的 `/driver/` |
 | 需要编译的用户态程序 | ① 作为 buildroot 包（改 `buildrootconfig`）；或 ② 编好后像驱动那样在 `build_rootfs` 里注入；或 ③ 预编译好直接丢进本 overlay | 简单程序用 ②/③，要依赖管理用 ① |
 | 改 busybox 启用的 applet | `./build.sh buildrootconfig` -> Target packages -> BusyBox configuration | busybox 现由 buildroot 管 |
 

@@ -4,7 +4,7 @@ obj-m += rpmsg_test.o
 
 # 内核与工具链目录：build.sh 用命令行 KERNELDIR=/CROSS_COMPILE= 覆盖；
 # 独立 make 时用相对工程根的回退路径（?= 保证可被覆盖）
-PROJECT_ROOT := $(shell cd $(CURDIR)/../.. && pwd)
+PROJECT_ROOT := $(shell cd $(CURDIR)/../../.. && pwd)
 KERNELDIR ?= $(PROJECT_ROOT)/source/linux
 
 # Cross compilation settings

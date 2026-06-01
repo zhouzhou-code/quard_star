@@ -2,7 +2,7 @@
 
 # Default Kernel Directory (Can be overridden by environment variable)
 # Example: make KERNELDIR=/path/to/linux-kernel CROSS_COMPILE=riscv64-unknown-linux-gnu-
-PROJECT_ROOT := $(shell cd $(CURDIR)/../.. && pwd)
+PROJECT_ROOT := $(shell cd $(CURDIR)/../../.. && pwd)
 KERNELDIR ?= $(PROJECT_ROOT)/source/linux
 
 # Cross Compiler Prefix (Can be overridden)

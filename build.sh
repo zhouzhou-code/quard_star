@@ -562,9 +562,10 @@ sync_driver_to_rootfs() {
     fi
 
     # 1) 同步到 rootfs staging 目录（供后续 rootfs 打包使用）
-    check_dir "${ROOTFS_STAGE_DIR}"
-    rm -f "${ROOTFS_STAGE_DIR}/"*.ko
-    cp -f "${OUTPUT_DIR}/linux_driver/"*.ko "${ROOTFS_STAGE_DIR}/"
+    # 注: buildroot 后端用 sudo tar 解包，staging 归 root，故用 sudo 写
+    sudo mkdir -p "${ROOTFS_STAGE_DIR}"
+    sudo rm -f "${ROOTFS_STAGE_DIR}/"*.ko
+    sudo cp -f "${OUTPUT_DIR}/linux_driver/"*.ko "${ROOTFS_STAGE_DIR}/"
     verify_driver_sync "${OUTPUT_DIR}/linux_driver" "${ROOTFS_STAGE_DIR}"
     log_driver_artifacts "${ROOTFS_STAGE_DIR}"
     log_info "Driver modules synced to staging: ${ROOTFS_STAGE_DIR}"

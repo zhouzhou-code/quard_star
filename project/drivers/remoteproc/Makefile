@@ -11,7 +11,7 @@ ifneq ($(KERNELRELEASE),)
 else
 
 # 获取项目根目录的绝对路径（使用 CURDIR，避免 make -C 时 PWD 不可靠）
-PROJECT_ROOT := $(shell cd $(CURDIR)/../.. && pwd)
+PROJECT_ROOT := $(shell cd $(CURDIR)/../../.. && pwd)
 
 # Linux 内核目录（?= 允许 build.sh 命令行覆盖）
 KERNELDIR ?= $(PROJECT_ROOT)/source/linux
