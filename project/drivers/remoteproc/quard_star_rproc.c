@@ -213,7 +213,7 @@ static void quard_star_rproc_kick(struct rproc *rproc, int vqid)
 	}
 
 	/* Linux -> FreeRTOS: 写 to-RTOS bank ch0 SET 触发 IRQ 51 (writel 自带隐式屏障) */
-	writel(QSMB_RPMSG_DBELL, priv->mailbox_base + QSMB_TR_SET);
+	writel(RVMB_RPMSG_DBELL, priv->mailbox_base + RVMB_TR_SET);
 
 	dev_dbg(priv->dev, "Kicked FreeRTOS via Mailbox (vq=%d)\n", vqid);
 }
@@ -388,7 +388,7 @@ static irqreturn_t quard_star_vq_irq_handler(int irq, void *dev_id)
 	struct quard_star_rproc *priv = dev_id;
 
 	/* 清除 to-Linux bank ch0 doorbell（W1C），中断线随之落下 */
-	writel(QSMB_RPMSG_DBELL, priv->mailbox_base + QSMB_TL_CLEAR);
+	writel(RVMB_RPMSG_DBELL, priv->mailbox_base + RVMB_TL_CLEAR);
 
 	/* 唤醒 threaded handler */
 	return IRQ_WAKE_THREAD;
@@ -536,8 +536,8 @@ static int quard_star_rproc_probe(struct platform_device *pdev)
 	dev_dbg(dev, "Mailbox IRQ %d registered\n", irq);
 
 	/* 清理 to-Linux bank ch0 历史 pending，并 unmask bit0（使能该位中断）*/
-	writel(QSMB_RPMSG_DBELL, priv->mailbox_base + QSMB_TL_CLEAR);
-	writel(QSMB_RPMSG_DBELL, priv->mailbox_base + QSMB_TL_MASK_CLEAR);
+	writel(RVMB_RPMSG_DBELL, priv->mailbox_base + RVMB_TL_CLEAR);
+	writel(RVMB_RPMSG_DBELL, priv->mailbox_base + RVMB_TL_MASK_CLEAR);
 
 	/* 分配并注册 remoteproc 实例 (使用 managed API) */
 	priv->rproc = devm_rproc_alloc(dev, "quard-star-rproc",

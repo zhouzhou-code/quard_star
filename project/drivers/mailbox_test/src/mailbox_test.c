@@ -19,12 +19,12 @@
 #include <linux/of_irq.h>
 #include <linux/io.h>
 
-/* QS-Mailbox v2: to-Linux bank channel0（本驱动是接收方） */
-#define QSMB_TL_STAT         0x00   /* doorbell 状态 (RO) */
-#define QSMB_TL_SET          0x04   /* 置位 (W1S)，测试时手写它模拟对端 kick */
-#define QSMB_TL_CLEAR        0x08   /* 清位 (W1C) */
-#define QSMB_TL_MASK_CLEAR   0x14   /* 清屏蔽=使能该位中断 (W1C) */
-#define QSMB_DBELL_BIT       0x1    /* channel0 bit0 */
+/* RV-Mailbox: to-Linux bank channel0（本驱动是接收方） */
+#define RVMB_TL_STAT         0x00   /* doorbell 状态 (RO) */
+#define RVMB_TL_SET          0x04   /* 置位 (W1S)，测试时手写它模拟对端 kick */
+#define RVMB_TL_CLEAR        0x08   /* 清位 (W1C) */
+#define RVMB_TL_MASK_CLEAR   0x14   /* 清屏蔽=使能该位中断 (W1C) */
+#define RVMB_DBELL_BIT       0x1    /* channel0 bit0 */
 
 static void __iomem *mailbox_base;
 static int mailbox_irq;
@@ -40,10 +40,10 @@ static irqreturn_t mailbox_isr(int irq, void *dev_id)
     uint32_t stat;
 
     /* 读取 doorbell 状态寄存器 */
-    stat = readl(mailbox_base + QSMB_TL_STAT);
+    stat = readl(mailbox_base + RVMB_TL_STAT);
 
     /* 清除该 doorbell 位 (W1C 语义) */
-    writel(QSMB_DBELL_BIT, mailbox_base + QSMB_TL_CLEAR);
+    writel(RVMB_DBELL_BIT, mailbox_base + RVMB_TL_CLEAR);
 
     irq_count++;
 
@@ -78,12 +78,12 @@ static int mailbox_probe(struct platform_device *pdev)
 
     dev_info(&pdev->dev, "MMIO mapped: 0x%pa - 0x%pa\n", &res->start, &res->end);
 
-    /* 2. 读取 REVISION 寄存器验证设备 (QS-Mailbox v2 在 0xF0，应为 0x0200) */
+    /* 2. 读取 REVISION 寄存器验证设备 (RV-Mailbox 在 0xF0，应为 0x0100) */
     reg_val = readl(mailbox_base + 0xF0);
     dev_info(&pdev->dev, "Mailbox REVISION: 0x%x\n", reg_val);
 
-    if (reg_val != 0x0200) {
-        dev_warn(&pdev->dev, "Unexpected revision! Expected 0x0200 (v2)\n");
+    if (reg_val != 0x0100) {
+        dev_warn(&pdev->dev, "Unexpected revision! Expected 0x0100 (v1)\n");
     }
 
     /* 3. 获取 IRQ 编号 */
@@ -107,12 +107,12 @@ static int mailbox_probe(struct platform_device *pdev)
     dev_info(&pdev->dev, "IRQ %d registered successfully\n", mailbox_irq);
 
     /* 5. unmask to-Linux ch0 bit0（清屏蔽位 = 使能该位中断）*/
-    writel(QSMB_DBELL_BIT, mailbox_base + QSMB_TL_MASK_CLEAR);
+    writel(RVMB_DBELL_BIT, mailbox_base + RVMB_TL_MASK_CLEAR);
     dev_info(&pdev->dev, "Mailbox ch0 bit0 unmasked (中断已使能)\n");
 
     dev_info(&pdev->dev, "Probe complete. Ready to receive interrupts!\n");
     dev_info(&pdev->dev, "Test with: devmem 0x%llx 32 1\n",
-             (unsigned long long)res->start + QSMB_TL_SET);
+             (unsigned long long)res->start + RVMB_TL_SET);
 
     return 0;
 }
@@ -126,7 +126,7 @@ static int mailbox_remove(struct platform_device *pdev)
 
     /* 禁用中断：重新屏蔽 to-Linux ch0 bit0（置屏蔽位 W1S，0x10）*/
     if (mailbox_base) {
-        writel(QSMB_DBELL_BIT, mailbox_base + 0x10);
+        writel(RVMB_DBELL_BIT, mailbox_base + 0x10);
     }
 
     return 0;

@@ -1,5 +1,5 @@
 /*
- * QEMU RISC-V Quard Star Mailbox Controller (QS-Mailbox v2)
+ * QEMU RISC-V RV-Mailbox Controller (Quard Star machine)
  *
  * Copyright (c) 2025 Quard Star Project
  *
@@ -7,7 +7,7 @@
  * 寄存器编程范式参考 ARM MHU v1/v2（SET/CLEAR/STAT + MASK），自主设计实现，
  * 与 ARM 源码/RTL 无关联。
  *
- * 双 bank（to-Linux / to-RTOS）× 3 通道 × 32-bit doorbell；v2 合并中断：
+ * 双 bank（to-Linux / to-RTOS）× 3 通道 × 32-bit doorbell；合并中断（MHU v2 风格）：
  * 某 bank 内任一通道 (STAT & ~MASK) != 0 即拉高该 bank 对应的中断线（电平）。
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -29,10 +29,10 @@
 #include "hw/riscv/quard_star_mailbox.h"
 
 /* 每 bank 基址与通道布局 */
-#define QSMB_BANK_TL_BASE   0x000        /* to-Linux  (IRQ50) */
-#define QSMB_BANK_TR_BASE   0x100        /* to-RTOS   (IRQ51) */
-#define QSMB_CH_STRIDE      0x20
-#define QSMB_BANK_SPAN      (QSMB_NUM_CHANNELS * QSMB_CH_STRIDE)   /* 0x60 */
+#define RVMB_BANK_TL_BASE   0x000        /* to-Linux  (IRQ50) */
+#define RVMB_BANK_TR_BASE   0x100        /* to-RTOS   (IRQ51) */
+#define RVMB_CH_STRIDE      0x20
+#define RVMB_BANK_SPAN      (RVMB_NUM_CHANNELS * RVMB_CH_STRIDE)   /* 0x60 */
 
 /* 通道内寄存器偏移 */
 #define R_STAT              0x00         /* RO  */
@@ -43,38 +43,38 @@
 #define R_MASK_CLEAR        0x14         /* W1C */
 
 /* 设备级寄存器 */
-#define R_REVISION          0x0F0        /* RO，0x0200 = v2.0 */
+#define R_REVISION          0x0F0        /* RO，0x0100 = v1.0 */
 #define R_NUM_CHANNELS      0x0F4        /* RO */
 #define R_NUM_BANKS         0x0F8        /* RO */
-#define QSMB_REVISION       0x0200
+#define RVMB_REVISION       0x0100
 
 /* 把 MMIO 偏移解码成 (bank, channel, 通道内寄存器)；返回 false 表示非通道区 */
 static bool qsmb_decode(hwaddr offset, int *bank, int *ch, hwaddr *reg)
 {
     hwaddr o;
-    if (offset < QSMB_BANK_TL_BASE + QSMB_BANK_SPAN) {   /* TL_BASE=0 */
-        *bank = QSMB_BANK_TO_LINUX;
-        o = offset - QSMB_BANK_TL_BASE;
-    } else if (offset >= QSMB_BANK_TR_BASE && offset < QSMB_BANK_TR_BASE + QSMB_BANK_SPAN) {
-        *bank = QSMB_BANK_TO_RTOS;
-        o = offset - QSMB_BANK_TR_BASE;
+    if (offset < RVMB_BANK_TL_BASE + RVMB_BANK_SPAN) {   /* TL_BASE=0 */
+        *bank = RVMB_BANK_TO_LINUX;
+        o = offset - RVMB_BANK_TL_BASE;
+    } else if (offset >= RVMB_BANK_TR_BASE && offset < RVMB_BANK_TR_BASE + RVMB_BANK_SPAN) {
+        *bank = RVMB_BANK_TO_RTOS;
+        o = offset - RVMB_BANK_TR_BASE;
     } else {
         return false;
     }
-    *ch = o / QSMB_CH_STRIDE;
-    *reg = o % QSMB_CH_STRIDE;
+    *ch = o / RVMB_CH_STRIDE;
+    *reg = o % RVMB_CH_STRIDE;
     return true;
 }
 
-/* 重新计算某 bank 的中断线电平（v2 合并中断） */
+/* 重新计算某 bank 的中断线电平（合并中断，MHU v2 风格） */
 static void qsmb_update_irq(QuardStarMailboxState *s, int bank)
 {
     uint32_t pending = 0;
     int ch;
-    for (ch = 0; ch < QSMB_NUM_CHANNELS; ch++) {
+    for (ch = 0; ch < RVMB_NUM_CHANNELS; ch++) {
         pending |= s->stat[bank][ch] & ~s->mask[bank][ch];
     }
-    qemu_set_irq(bank == QSMB_BANK_TO_LINUX ? s->irq_linux : s->irq_rtos,
+    qemu_set_irq(bank == RVMB_BANK_TO_LINUX ? s->irq_linux : s->irq_rtos,
                  pending ? 1 : 0);
 }
 
@@ -87,11 +87,11 @@ static uint64_t quard_star_mailbox_read(void *opaque, hwaddr offset,
 
     switch (offset) {
     case R_REVISION:
-        return QSMB_REVISION;
+        return RVMB_REVISION;
     case R_NUM_CHANNELS:
-        return QSMB_NUM_CHANNELS;
+        return RVMB_NUM_CHANNELS;
     case R_NUM_BANKS:
-        return QSMB_NUM_BANKS;
+        return RVMB_NUM_BANKS;
     }
 
     if (!qsmb_decode(offset, &bank, &ch, &reg)) {
@@ -201,8 +201,8 @@ static void quard_star_mailbox_reset(DeviceState *dev)
     int b, ch;
 
     /* 复位：状态全 0；屏蔽全 1（默认全部屏蔽，接收方需显式 unmask）*/
-    for (b = 0; b < QSMB_NUM_BANKS; b++) {
-        for (ch = 0; ch < QSMB_NUM_CHANNELS; ch++) {
+    for (b = 0; b < RVMB_NUM_BANKS; b++) {
+        for (ch = 0; ch < RVMB_NUM_CHANNELS; ch++) {
             s->stat[b][ch] = 0;
             s->mask[b][ch] = 0xFFFFFFFF;
         }
@@ -213,13 +213,13 @@ static void quard_star_mailbox_reset(DeviceState *dev)
 
 static const VMStateDescription vmstate_quard_star_mailbox = {
     .name = TYPE_QUARD_STAR_MAILBOX_DEVICE,
-    .version_id = 2,
-    .minimum_version_id = 2,
+    .version_id = 1,
+    .minimum_version_id = 1,
     .fields = (VMStateField[]) {
         VMSTATE_UINT32_2DARRAY(stat, QuardStarMailboxState,
-                               QSMB_NUM_BANKS, QSMB_NUM_CHANNELS),
+                               RVMB_NUM_BANKS, RVMB_NUM_CHANNELS),
         VMSTATE_UINT32_2DARRAY(mask, QuardStarMailboxState,
-                               QSMB_NUM_BANKS, QSMB_NUM_CHANNELS),
+                               RVMB_NUM_BANKS, RVMB_NUM_CHANNELS),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -229,7 +229,7 @@ static void quard_star_mailbox_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->reset = quard_star_mailbox_reset;
-    dc->desc = "Quard Star Mailbox Controller (QS-Mailbox v2)";
+    dc->desc = "RV-Mailbox Controller (multi-channel doorbell)";
     dc->vmsd = &vmstate_quard_star_mailbox;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }

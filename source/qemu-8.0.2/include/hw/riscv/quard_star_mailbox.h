@@ -1,5 +1,5 @@
 /*
- * QEMU RISC-V Quard Star Mailbox Controller (QS-Mailbox v2)
+ * QEMU RISC-V RV-Mailbox Controller (Quard Star machine)
  *
  * Copyright (c) 2025 Quard Star Project
  *
@@ -27,11 +27,11 @@
 OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
 
 /* 通道数（对齐 ARM MHU v1 经典 low/high/secure 三通道） */
-#define QSMB_NUM_CHANNELS   3
+#define RVMB_NUM_CHANNELS   3
 /* bank 索引：0 = 发往 Linux(IRQ50)，1 = 发往 FreeRTOS(IRQ51) */
-#define QSMB_BANK_TO_LINUX  0
-#define QSMB_BANK_TO_RTOS   1
-#define QSMB_NUM_BANKS      2
+#define RVMB_BANK_TO_LINUX  0
+#define RVMB_BANK_TO_RTOS   1
+#define RVMB_NUM_BANKS      2
 
 /*
  * 寄存器映射（每 bank 基址：to-Linux=0x000, to-RTOS=0x100；通道 stride=0x20）
@@ -42,8 +42,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
  *   +0x10 CHx_MASK_SET   (W1S) 置屏蔽位
  *   +0x14 CHx_MASK_CLEAR (W1C) 清屏蔽位(=使能该位中断)
  * 设备级:
- *   0x0F0 REVISION(RO)=0x0200(v2.0)  0x0F4 NUM_CHANNELS  0x0F8 NUM_BANKS
- * 中断逻辑(电平、v2 合并中断):
+ *   0x0F0 REVISION(RO)=0x0100(v1.0)  0x0F4 NUM_CHANNELS  0x0F8 NUM_BANKS
+ * 中断逻辑(电平、合并中断（MHU v2 风格）):
  *   irq_linux = OR_ch( stat[TL][ch] & ~mask[TL][ch] ) != 0
  *   irq_rtos  = OR_ch( stat[TR][ch] & ~mask[TR][ch] ) != 0
  */
@@ -58,8 +58,8 @@ struct QuardStarMailboxState {
     qemu_irq irq_rtos;    /* to-RTOS  bank → PLIC input 51 */
 
     /* [bank][channel]：doorbell 状态与屏蔽位 */
-    uint32_t stat[QSMB_NUM_BANKS][QSMB_NUM_CHANNELS];
-    uint32_t mask[QSMB_NUM_BANKS][QSMB_NUM_CHANNELS];
+    uint32_t stat[RVMB_NUM_BANKS][RVMB_NUM_CHANNELS];
+    uint32_t mask[RVMB_NUM_BANKS][RVMB_NUM_CHANNELS];
 };
 
 #endif /* HW_RISCV_QUARD_STAR_MAILBOX_H */

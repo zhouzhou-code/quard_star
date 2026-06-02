@@ -139,8 +139,8 @@ static void mailbox_kick_to_linux(void)
 {
     volatile uint32_t *mailbox = (volatile uint32_t *)MAILBOX_BASE_ADDR;
 
-    /* QS-Mailbox v2：写 to-Linux bank ch0 SET 置 bit0 → 触发 IRQ50 通知 Linux */
-    MAILBOX_REG(mailbox, QSMB_TL_SET) = QSMB_RPMSG_DBELL;
+    /* RV-Mailbox：写 to-Linux bank ch0 SET 置 bit0 → 触发 IRQ50 通知 Linux */
+    MAILBOX_REG(mailbox, RVMB_TL_SET) = RVMB_RPMSG_DBELL;
 
     /* RISC-V 内存屏障 */
     __asm__ volatile("fence ow,ow" ::: "memory");
