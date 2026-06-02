@@ -1,7 +1,10 @@
 /*
- * QEMU RISC-V Quard Star Mailbox Controller
+ * QEMU RISC-V Quard Star Mailbox Controller (QS-Mailbox v2)
  *
  * Copyright (c) 2025 Quard Star Project
+ *
+ * 参考 ARM MHU v1/v2 的 doorbell 编程模型，自主设计实现的多通道邮箱控制器。
+ * 与 ARM MHU 无源码/RTL 关联，仅在寄存器编程范式上对齐（SET/CLEAR/STAT + MASK）。
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -11,9 +14,6 @@
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef HW_RISCV_QUARD_STAR_MAILBOX_H
@@ -26,39 +26,26 @@
 #define TYPE_QUARD_STAR_MAILBOX_DEVICE "quard-star-mailbox"
 OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
 
-/**
- * struct QuardStarMailboxState - Mailbox device state
- * @parent: Parent SysBusDevice
- * @iomem: MMIO region for register access
- * @irq_linux: IRQ line to Linux (Hart 1-7 via PLIC input 50)
- * @irq_rtos: IRQ line to FreeRTOS (Hart 0 via PLIC input 51)
- * @linux_trig_state: Current trigger state for Linux interrupt (0=inactive, 1=active)
- * @linux_ie: Linux interrupt enable flag
- * @rtos_trig_state: Current trigger state for FreeRTOS interrupt (0=inactive, 1=active)
- * @rtos_ie: FreeRTOS interrupt enable flag
- *
- * This device implements a minimal doorbell-style mailbox for AMP
- * inter-processor communication between FreeRTOS and Linux.
- *
- * Register Map:
- * 0x00 - LINUX_TRIG  (WO): Trigger interrupt to Linux (W1S)
- * 0x04 - LINUX_ACK   (WO): Clear Linux interrupt (W1C)
- * 0x08 - LINUX_STAT  (RO): Read Linux interrupt line status
- * 0x0C - LINUX_IE    (RW): Linux interrupt enable
- * 0x10-0x1F - Reserved
- *
- * 0x20 - RTOS_TRIG   (WO): Trigger interrupt to FreeRTOS (W1S)
- * 0x24 - RTOS_ACK    (WO): Clear FreeRTOS interrupt (W1C)
- * 0x28 - RTOS_STAT   (RO): Read FreeRTOS interrupt line status
- * 0x2C - RTOS_IE     (RW): FreeRTOS interrupt enable
- * 0x30-0x3F - Reserved
- *
- * 0x40 - REVISION    (RO): IP revision (0x0100 = v1.0)
- * 0x44-0xFF - Reserved
- *
- * Interrupt Logic:
- * - IRQ output = TRIGGER_STATE && IE_STATE
- * - Level-triggered semantics: IRQ stays high until ACKed
+/* 通道数（对齐 ARM MHU v1 经典 low/high/secure 三通道） */
+#define QSMB_NUM_CHANNELS   3
+/* bank 索引：0 = 发往 Linux(IRQ50)，1 = 发往 FreeRTOS(IRQ51) */
+#define QSMB_BANK_TO_LINUX  0
+#define QSMB_BANK_TO_RTOS   1
+#define QSMB_NUM_BANKS      2
+
+/*
+ * 寄存器映射（每 bank 基址：to-Linux=0x000, to-RTOS=0x100；通道 stride=0x20）
+ *   +0x00 CHx_STAT       (RO)  doorbell 状态(32 位，每位一个事件)
+ *   +0x04 CHx_SET        (W1S) 置位 → 可能拉高中断（发送方写）
+ *   +0x08 CHx_CLEAR      (W1C) 清位 → 全清后中断落下（接收方写）
+ *   +0x0C CHx_MASK_STAT  (RO)  中断屏蔽(1=屏蔽)
+ *   +0x10 CHx_MASK_SET   (W1S) 置屏蔽位
+ *   +0x14 CHx_MASK_CLEAR (W1C) 清屏蔽位(=使能该位中断)
+ * 设备级:
+ *   0x0F0 REVISION(RO)=0x0200(v2.0)  0x0F4 NUM_CHANNELS  0x0F8 NUM_BANKS
+ * 中断逻辑(电平、v2 合并中断):
+ *   irq_linux = OR_ch( stat[TL][ch] & ~mask[TL][ch] ) != 0
+ *   irq_rtos  = OR_ch( stat[TR][ch] & ~mask[TR][ch] ) != 0
  */
 struct QuardStarMailboxState {
     /*< private >*/
@@ -67,17 +54,12 @@ struct QuardStarMailboxState {
     /*< public >*/
     MemoryRegion iomem;
 
-    /* Output IRQ lines */
-    qemu_irq irq_linux;   /* To Linux (PLIC input 50) */
-    qemu_irq irq_rtos;    /* To FreeRTOS (PLIC input 51) */
+    qemu_irq irq_linux;   /* to-Linux bank → PLIC input 50 */
+    qemu_irq irq_rtos;    /* to-RTOS  bank → PLIC input 51 */
 
-    /* Linux control state */
-    uint8_t linux_trig_state;  /* Trigger state (0 or 1) */
-    uint8_t linux_ie;          /* Interrupt enable (0 or 1) */
-
-    /* FreeRTOS control state */
-    uint8_t rtos_trig_state;   /* Trigger state (0 or 1) */
-    uint8_t rtos_ie;           /* Interrupt enable (0 or 1) */
+    /* [bank][channel]：doorbell 状态与屏蔽位 */
+    uint32_t stat[QSMB_NUM_BANKS][QSMB_NUM_CHANNELS];
+    uint32_t mask[QSMB_NUM_BANKS][QSMB_NUM_CHANNELS];
 };
 
 #endif /* HW_RISCV_QUARD_STAR_MAILBOX_H */

@@ -104,7 +104,9 @@ static uint16_t tx_avail_idx = 0;  /* TX 环的本地消费索引 */
 static uint16_t rx_avail_idx = 0;  /* RX 环的本地消费索引 */
 
 /* Mailbox 寄存器 */
-#define MAILBOX_REG(base, offset)  (*(volatile uint32_t *)((base) + (offset)))
+/* 注意: offset 是字节偏移。base 转成字节指针再加，否则 uint32_t* 指针运算会 ×4。
+ * (v1 时 offset 恒为 0x00 故未暴露; v2 偏移 0x04 起必须按字节算) */
+#define MAILBOX_REG(base, offset)  (*(volatile uint32_t *)((volatile uint8_t *)(base) + (offset)))
 
 /* ============================================================================
  * VirtQueue 初始化
@@ -137,8 +139,8 @@ static void mailbox_kick_to_linux(void)
 {
     volatile uint32_t *mailbox = (volatile uint32_t *)MAILBOX_BASE_ADDR;
 
-    /* 写寄存器触发中断到 Linux */
-    MAILBOX_REG(mailbox, REG_LINUX_TRIG) = 1;
+    /* QS-Mailbox v2：写 to-Linux bank ch0 SET 置 bit0 → 触发 IRQ50 通知 Linux */
+    MAILBOX_REG(mailbox, QSMB_TL_SET) = QSMB_RPMSG_DBELL;
 
     /* RISC-V 内存屏障 */
     __asm__ volatile("fence ow,ow" ::: "memory");

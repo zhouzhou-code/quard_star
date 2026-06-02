@@ -1,13 +1,14 @@
 /*
- * QEMU RISC-V Quard Star Mailbox Controller
+ * QEMU RISC-V Quard Star Mailbox Controller (QS-Mailbox v2)
  *
  * Copyright (c) 2025 Quard Star Project
  *
- * A minimal doorbell-style mailbox IP for AMP (Asymmetric Multi-Processing)
- * inter-processor communication between FreeRTOS (Hart 0) and Linux (Hart 1-7).
+ * 多通道 doorbell 邮箱，用于 FreeRTOS(Hart7) 与 Linux(Hart0-6) 的 AMP 跨核通信。
+ * 寄存器编程范式参考 ARM MHU v1/v2（SET/CLEAR/STAT + MASK），自主设计实现，
+ * 与 ARM 源码/RTL 无关联。
  *
- * This device implements level-triggered interrupts with Write-1-to-Set (W1S)
- * trigger registers and Write-1-to-Clear (W1C) acknowledge registers.
+ * 双 bank（to-Linux / to-RTOS）× 3 通道 × 32-bit doorbell；v2 合并中断：
+ * 某 bank 内任一通道 (STAT & ~MASK) != 0 即拉高该 bank 对应的中断线（电平）。
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -17,9 +18,6 @@
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "qemu/osdep.h"
@@ -30,176 +28,146 @@
 #include "hw/irq.h"
 #include "hw/riscv/quard_star_mailbox.h"
 
-/* Register offsets */
-#define REG_LINUX_TRIG      0x00    /* WO: Trigger interrupt to Linux */
-#define REG_LINUX_ACK       0x04    /* W1C: Clear Linux interrupt */
-#define REG_LINUX_STAT      0x08    /* RO: Read Linux interrupt line status */
-#define REG_LINUX_IE        0x0C    /* RW: Linux interrupt enable */
+/* 每 bank 基址与通道布局 */
+#define QSMB_BANK_TL_BASE   0x000        /* to-Linux  (IRQ50) */
+#define QSMB_BANK_TR_BASE   0x100        /* to-RTOS   (IRQ51) */
+#define QSMB_CH_STRIDE      0x20
+#define QSMB_BANK_SPAN      (QSMB_NUM_CHANNELS * QSMB_CH_STRIDE)   /* 0x60 */
 
-#define REG_RTOS_TRIG       0x20    /* WO: Trigger interrupt to FreeRTOS */
-#define REG_RTOS_ACK        0x24    /* W1C: Clear FreeRTOS interrupt */
-#define REG_RTOS_STAT       0x28    /* RO: Read FreeRTOS interrupt line status */
-#define REG_RTOS_IE         0x2C    /* RW: FreeRTOS interrupt enable */
+/* 通道内寄存器偏移 */
+#define R_STAT              0x00         /* RO  */
+#define R_SET               0x04         /* W1S */
+#define R_CLEAR             0x08         /* W1C */
+#define R_MASK_STAT         0x0C         /* RO  */
+#define R_MASK_SET          0x10         /* W1S */
+#define R_MASK_CLEAR        0x14         /* W1C */
 
-#define REG_REVISION        0x40    /* RO: IP revision (0x0100 = v1.0) */
+/* 设备级寄存器 */
+#define R_REVISION          0x0F0        /* RO，0x0200 = v2.0 */
+#define R_NUM_CHANNELS      0x0F4        /* RO */
+#define R_NUM_BANKS         0x0F8        /* RO */
+#define QSMB_REVISION       0x0200
 
-/* IP Revision: Major.Minor (BCD) */
-#define MAILBOX_REVISION    0x0100
+/* 把 MMIO 偏移解码成 (bank, channel, 通道内寄存器)；返回 false 表示非通道区 */
+static bool qsmb_decode(hwaddr offset, int *bank, int *ch, hwaddr *reg)
+{
+    hwaddr o;
+    if (offset < QSMB_BANK_TL_BASE + QSMB_BANK_SPAN) {   /* TL_BASE=0 */
+        *bank = QSMB_BANK_TO_LINUX;
+        o = offset - QSMB_BANK_TL_BASE;
+    } else if (offset >= QSMB_BANK_TR_BASE && offset < QSMB_BANK_TR_BASE + QSMB_BANK_SPAN) {
+        *bank = QSMB_BANK_TO_RTOS;
+        o = offset - QSMB_BANK_TR_BASE;
+    } else {
+        return false;
+    }
+    *ch = o / QSMB_CH_STRIDE;
+    *reg = o % QSMB_CH_STRIDE;
+    return true;
+}
 
-/* Helper macros to update interrupt lines based on state machine */
-#define UPDATE_LINUX_IRQ(s) \
-    qemu_set_irq((s)->irq_linux, \
-                 ((s)->linux_trig_state && (s)->linux_ie) ? 1 : 0)
-
-#define UPDATE_RTOS_IRQ(s) \
-    qemu_set_irq((s)->irq_rtos, \
-                 ((s)->rtos_trig_state && (s)->rtos_ie) ? 1 : 0)
+/* 重新计算某 bank 的中断线电平（v2 合并中断） */
+static void qsmb_update_irq(QuardStarMailboxState *s, int bank)
+{
+    uint32_t pending = 0;
+    int ch;
+    for (ch = 0; ch < QSMB_NUM_CHANNELS; ch++) {
+        pending |= s->stat[bank][ch] & ~s->mask[bank][ch];
+    }
+    qemu_set_irq(bank == QSMB_BANK_TO_LINUX ? s->irq_linux : s->irq_rtos,
+                 pending ? 1 : 0);
+}
 
 static uint64_t quard_star_mailbox_read(void *opaque, hwaddr offset,
                                         unsigned size)
 {
     QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(opaque);
-    uint64_t value = 0;
+    int bank, ch;
+    hwaddr reg;
 
     switch (offset) {
-    case REG_LINUX_TRIG:
-    case REG_LINUX_ACK:
-        /* Write-only registers return 0 on read */
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Read from WO register 0x%02"HWADDR_PRIx"\n",
-                      __func__, offset);
-        value = 0;
-        break;
-
-    case REG_LINUX_STAT:
-        /* Return current physical interrupt line state to Linux */
-        value = s->linux_trig_state && s->linux_ie;
-        break;
-
-    case REG_LINUX_IE:
-        /* Return interrupt enable state */
-        value = s->linux_ie;
-        break;
-
-    case REG_RTOS_TRIG:
-    case REG_RTOS_ACK:
-        /* Write-only registers return 0 on read */
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Read from WO register 0x%02"HWADDR_PRIx"\n",
-                      __func__, offset);
-        value = 0;
-        break;
-
-    case REG_RTOS_STAT:
-        /* Return current physical interrupt line state to FreeRTOS */
-        value = s->rtos_trig_state && s->rtos_ie;
-        break;
-
-    case REG_RTOS_IE:
-        /* Return interrupt enable state */
-        value = s->rtos_ie;
-        break;
-
-    case REG_REVISION:
-        /* Return IP revision (read-only) */
-        value = MAILBOX_REVISION;
-        break;
-
-    default:
-        /* Reserved registers return 0 */
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Invalid register read: 0x%02"HWADDR_PRIx"\n",
-                      __func__, offset);
-        value = 0;
-        break;
+    case R_REVISION:
+        return QSMB_REVISION;
+    case R_NUM_CHANNELS:
+        return QSMB_NUM_CHANNELS;
+    case R_NUM_BANKS:
+        return QSMB_NUM_BANKS;
     }
 
-    return value;
+    if (!qsmb_decode(offset, &bank, &ch, &reg)) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: invalid read @0x%02"HWADDR_PRIx"\n", __func__, offset);
+        return 0;
+    }
+
+    switch (reg) {
+    case R_STAT:
+        return s->stat[bank][ch];
+    case R_MASK_STAT:
+        return s->mask[bank][ch];
+    case R_SET:
+    case R_CLEAR:
+    case R_MASK_SET:
+    case R_MASK_CLEAR:
+        /* 只写寄存器读返回 0 */
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: read WO reg @0x%02"HWADDR_PRIx"\n", __func__, offset);
+        return 0;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: read reserved @0x%02"HWADDR_PRIx"\n", __func__, offset);
+        return 0;
+    }
 }
 
 static void quard_star_mailbox_write(void *opaque, hwaddr offset,
                                      uint64_t value, unsigned size)
 {
     QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(opaque);
+    uint32_t val = (uint32_t)value;
+    int bank, ch;
+    hwaddr reg;
 
     switch (offset) {
-    case REG_LINUX_TRIG:
-        /* W1S (Write-1-to-Set): Only setting bit 0 has effect */
-        if (value & 0x1) {
-            if (!s->linux_trig_state) {
-                s->linux_trig_state = 1;
-                UPDATE_LINUX_IRQ(s);
-            }
-        }
-        break;
-
-    case REG_LINUX_ACK:
-        /* W1C (Write-1-to-Clear): Only clearing bit 0 has effect */
-        if (value & 0x1) {
-            if (s->linux_trig_state) {
-                s->linux_trig_state = 0;
-                UPDATE_LINUX_IRQ(s);
-            }
-        }
-        break;
-
-    case REG_LINUX_STAT:
-        /* Read-only register */
+    case R_REVISION:
+    case R_NUM_CHANNELS:
+    case R_NUM_BANKS:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Write to RO register 0x%02"HWADDR_PRIx"\n",
-                      __func__, offset);
-        break;
+                      "%s: write RO reg @0x%02"HWADDR_PRIx"\n", __func__, offset);
+        return;
+    }
 
-    case REG_LINUX_IE:
-        /* Interrupt enable: bit 0 controls enable, others ignored */
-        s->linux_ie = (value & 0x1) ? 1 : 0;
-        UPDATE_LINUX_IRQ(s);
-        break;
-
-    case REG_RTOS_TRIG:
-        /* W1S (Write-1-to-Set): Only setting bit 0 has effect */
-        if (value & 0x1) {
-            if (!s->rtos_trig_state) {
-                s->rtos_trig_state = 1;
-                UPDATE_RTOS_IRQ(s);
-            }
-        }
-        break;
-
-    case REG_RTOS_ACK:
-        /* W1C (Write-1-to-Clear): Only clearing bit 0 has effect */
-        if (value & 0x1) {
-            if (s->rtos_trig_state) {
-                s->rtos_trig_state = 0;
-                UPDATE_RTOS_IRQ(s);
-            }
-        }
-        break;
-
-    case REG_RTOS_STAT:
-        /* Read-only register */
+    if (!qsmb_decode(offset, &bank, &ch, &reg)) {
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Write to RO register 0x%02"HWADDR_PRIx"\n",
-                      __func__, offset);
-        break;
+                      "%s: invalid write @0x%02"HWADDR_PRIx"\n", __func__, offset);
+        return;
+    }
 
-    case REG_RTOS_IE:
-        /* Interrupt enable: bit 0 controls enable, others ignored */
-        s->rtos_ie = (value & 0x1) ? 1 : 0;
-        UPDATE_RTOS_IRQ(s);
+    switch (reg) {
+    case R_SET:                 /* W1S：置 doorbell 位 */
+        s->stat[bank][ch] |= val;
+        qsmb_update_irq(s, bank);
         break;
-
-    case REG_REVISION:
-        /* Read-only register */
+    case R_CLEAR:               /* W1C：清 doorbell 位 */
+        s->stat[bank][ch] &= ~val;
+        qsmb_update_irq(s, bank);
+        break;
+    case R_MASK_SET:            /* W1S：置屏蔽位（关该位中断）*/
+        s->mask[bank][ch] |= val;
+        qsmb_update_irq(s, bank);
+        break;
+    case R_MASK_CLEAR:          /* W1C：清屏蔽位（开该位中断）*/
+        s->mask[bank][ch] &= ~val;
+        qsmb_update_irq(s, bank);
+        break;
+    case R_STAT:
+    case R_MASK_STAT:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Write to RO register REVISION\n", __func__);
+                      "%s: write RO reg @0x%02"HWADDR_PRIx"\n", __func__, offset);
         break;
-
     default:
-        /* Reserved registers: ignore writes */
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Invalid register write: 0x%02"HWADDR_PRIx"\n",
-                      __func__, offset);
+                      "%s: write reserved @0x%02"HWADDR_PRIx"\n", __func__, offset);
         break;
     }
 }
@@ -219,40 +187,39 @@ static void quard_star_mailbox_init(Object *obj)
     QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    /* Initialize MMIO region (4KB as per spec for page alignment) */
     memory_region_init_io(&s->iomem, obj, &quard_star_mailbox_ops,
                           s, "quard-star-mailbox", 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
 
-    /* Initialize two output IRQ lines for bidirectional communication */
-    sysbus_init_irq(sbd, &s->irq_linux);   /* IRQ to Linux (PLIC input 50) */
-    sysbus_init_irq(sbd, &s->irq_rtos);    /* IRQ to FreeRTOS (PLIC input 51) */
+    sysbus_init_irq(sbd, &s->irq_linux);   /* to-Linux bank → PLIC input 50 */
+    sysbus_init_irq(sbd, &s->irq_rtos);    /* to-RTOS  bank → PLIC input 51 */
 }
 
 static void quard_star_mailbox_reset(DeviceState *dev)
 {
     QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(dev);
+    int b, ch;
 
-    /* Reset all internal states to hardware defaults */
-    s->linux_trig_state = 0;
-    s->linux_ie = 0;
-    s->rtos_trig_state = 0;
-    s->rtos_ie = 0;
-
-    /* Ensure both interrupt lines are low after reset */
+    /* 复位：状态全 0；屏蔽全 1（默认全部屏蔽，接收方需显式 unmask）*/
+    for (b = 0; b < QSMB_NUM_BANKS; b++) {
+        for (ch = 0; ch < QSMB_NUM_CHANNELS; ch++) {
+            s->stat[b][ch] = 0;
+            s->mask[b][ch] = 0xFFFFFFFF;
+        }
+    }
     qemu_set_irq(s->irq_linux, 0);
     qemu_set_irq(s->irq_rtos, 0);
 }
 
 static const VMStateDescription vmstate_quard_star_mailbox = {
     .name = TYPE_QUARD_STAR_MAILBOX_DEVICE,
-    .version_id = 1,
-    .minimum_version_id = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT8(linux_trig_state, QuardStarMailboxState),
-        VMSTATE_UINT8(linux_ie, QuardStarMailboxState),
-        VMSTATE_UINT8(rtos_trig_state, QuardStarMailboxState),
-        VMSTATE_UINT8(rtos_ie, QuardStarMailboxState),
+        VMSTATE_UINT32_2DARRAY(stat, QuardStarMailboxState,
+                               QSMB_NUM_BANKS, QSMB_NUM_CHANNELS),
+        VMSTATE_UINT32_2DARRAY(mask, QuardStarMailboxState,
+                               QSMB_NUM_BANKS, QSMB_NUM_CHANNELS),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -262,7 +229,7 @@ static void quard_star_mailbox_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->reset = quard_star_mailbox_reset;
-    dc->desc = "Quard Star Mailbox Controller";
+    dc->desc = "Quard Star Mailbox Controller (QS-Mailbox v2)";
     dc->vmsd = &vmstate_quard_star_mailbox;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }

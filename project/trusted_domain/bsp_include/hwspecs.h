@@ -101,19 +101,25 @@ extern "C" {
 #define MAILBOX_REG_SIZE        0x1000
 
 /**
- * Mailbox 寄存器偏移
+ * Mailbox 寄存器（QS-Mailbox v2：参考 ARM MHU v1/v2 自主实现）
+ *   双 bank × 3 通道 × 32-bit doorbell。to-Linux @0x000 (FreeRTOS 写它通知 Linux, IRQ50)，
+ *   to-RTOS @0x100 (IRQ51)。每通道 stride 0x20：STAT/SET(W1S)/CLEAR(W1C)/MASK_*。
+ *   FreeRTOS 是发送方：写 to-Linux ch0 SET 即 kick；接收靠轮询 vring。
  */
-#define REG_LINUX_TRIG          0x00    /* 触发中断到 Linux (WO) */
-#define REG_LINUX_ACK           0x04    /* 清除 Linux 中断 (W1C) */
-#define REG_LINUX_STAT          0x08    /* Linux 中断状态 (RO) */
-#define REG_LINUX_IE            0x0C    /* Linux 中断使能 (RW) */
+#define QSMB_BANK_TO_LINUX      0x000
+#define QSMB_BANK_TO_RTOS       0x100
+#define QSMB_R_STAT             0x00
+#define QSMB_R_SET              0x04
+#define QSMB_R_CLEAR            0x08
+#define QSMB_RPMSG_DBELL        0x1     /* channel0 bit0 */
+#define QSMB_TL_SET             (QSMB_BANK_TO_LINUX + QSMB_R_SET)   /* 0x04：kick Linux */
+#define REG_REVISION            0xF0    /* IP 版本号 (RO)，v2=0x0200 */
 
-#define REG_RTOS_TRIG           0x20    /* 触发中断到 FreeRTOS (WO) */
-#define REG_RTOS_ACK            0x24    /* 清除 FreeRTOS 中断 (W1C) */
-#define REG_RTOS_STAT           0x28    /* FreeRTOS 中断状态 (RO) */
-#define REG_RTOS_IE             0x2C    /* FreeRTOS 中断使能 (RW) */
-
-#define REG_REVISION            0x40    /* IP 版本号 (RO) */
+/* 兼容旧名（openamp_adapter 等遗留代码引用；映射到 v2 channel0 等价偏移）*/
+#define REG_LINUX_TRIG          QSMB_TL_SET                          /* 0x04 */
+#define REG_RTOS_TRIG           (QSMB_BANK_TO_RTOS + QSMB_R_SET)     /* 0x104 */
+#define REG_LINUX_ACK           (QSMB_BANK_TO_LINUX + QSMB_R_CLEAR)  /* 0x08 */
+#define REG_RTOS_ACK            (QSMB_BANK_TO_RTOS + QSMB_R_CLEAR)   /* 0x108 */
 
 /**
  * PLIC 中断号

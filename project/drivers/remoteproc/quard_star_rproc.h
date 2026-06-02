@@ -61,14 +61,20 @@
 #define QUARD_STAR_MAILBOX_PA          0x10004000
 #define QUARD_STAR_MAILBOX_SIZE        0x1000
 
-#define MAILBOX_REG_LINUX_TRIG         0x00  /* 触发中断到 Linux (WO) */
-#define MAILBOX_REG_LINUX_ACK          0x04  /* 清除 Linux 中断 (W1C) */
-#define MAILBOX_REG_LINUX_STAT         0x08  /* Linux 中断状态 (RO) */
-#define MAILBOX_REG_LINUX_IE           0x0C  /* Linux 中断使能 (RW) */
-
-#define MAILBOX_REG_RTOS_TRIG          0x20  /* 触发中断到 FreeRTOS (WO) */
-#define MAILBOX_REG_RTOS_ACK           0x24  /* 清除 FreeRTOS 中断 (W1C) */
-#define MAILBOX_REG_RTOS_STAT          0x28  /* FreeRTOS 中断状态 (RO) */
-#define MAILBOX_REG_RTOS_IE            0x2C  /* FreeRTOS 中断使能 (RW) */
+/*
+ * QS-Mailbox v2：doorbell 编程范式参考 ARM MHU v1/v2，自主实现。
+ * 双 bank：to-Linux @0x000 (IRQ50，本驱动是接收方)；to-RTOS @0x100 (IRQ51，本驱动是发送方)。
+ * 每通道 stride 0x20：STAT(0x00,RO)/SET(0x04,W1S)/CLEAR(0x08,W1C)/MASK_*(0x0C-0x14)。
+ * rpmsg 用 channel0 bit0 作 notify doorbell。
+ */
+#define QSMB_BANK_TO_LINUX             0x000
+#define QSMB_BANK_TO_RTOS              0x100
+#define QSMB_R_SET                     0x04
+#define QSMB_R_CLEAR                   0x08
+#define QSMB_R_MASK_CLEAR              0x14
+#define QSMB_RPMSG_DBELL               0x1    /* channel0 bit0 */
+#define QSMB_TL_CLEAR                  (QSMB_BANK_TO_LINUX + QSMB_R_CLEAR)       /* 0x08 */
+#define QSMB_TL_MASK_CLEAR             (QSMB_BANK_TO_LINUX + QSMB_R_MASK_CLEAR)  /* 0x14 */
+#define QSMB_TR_SET                    (QSMB_BANK_TO_RTOS  + QSMB_R_SET)         /* 0x104 */
 
 #endif /* _QUARD_STAR_RPROC_H */
