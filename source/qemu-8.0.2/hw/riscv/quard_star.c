@@ -12,7 +12,7 @@
 
 #include "hw/riscv/riscv_hart.h"
 #include "hw/riscv/quard_star.h"
-#include "hw/riscv/quard_star_mailbox.h"
+#include "hw/riscv/riscv_mailbox.h"
 #include "hw/riscv/boot.h"
 #include "hw/riscv/numa.h"
 #include "hw/intc/riscv_aclint.h"
@@ -264,7 +264,7 @@ static void quard_star_mailbox_create(MachineState *machine)
     SysBusDevice *sbd;
 
     /* 创建 Mailbox 设备 */
-    dev = qdev_new(TYPE_QUARD_STAR_MAILBOX_DEVICE);
+    dev = qdev_new(TYPE_RISCV_MAILBOX);
     sbd = SYS_BUS_DEVICE(dev);
 
     /* 初始化设备 */
@@ -287,7 +287,7 @@ static void quard_star_mailbox_create(MachineState *machine)
                                               QUARD_STAR_MAILBOX_IRQ_RTOS));
 
     /* 保存设备状态指针 */
-    s->mailbox = QUARD_STAR_MAILBOX_DEVICE(dev);
+    s->mailbox = RISCV_MAILBOX(dev);
 }
 
 /* 创建virtio */

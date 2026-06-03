@@ -1,8 +1,10 @@
 /*
- * QEMU RISC-V RV-Mailbox Controller (Quard Star machine)
+ * QEMU RISC-V Mailbox Controller —— RV-Mailbox (通用 SysBus 设备)
  *
  * Copyright (c) 2025 Quard Star Project
  *
+ * 机器无关的多通道 doorbell 邮箱，填补 QEMU RISC-V 平台无邮箱设备的空白，
+ * 可挂载到任意 RISC-V 机器(quard_star / virt / ...)。
  * 参考 ARM MHU v1/v2 的 doorbell 编程模型，自主设计实现的多通道邮箱控制器。
  * 与 ARM MHU 无源码/RTL 关联，仅在寄存器编程范式上对齐（SET/CLEAR/STAT + MASK）。
  *
@@ -16,15 +18,15 @@
  * more details.
  */
 
-#ifndef HW_RISCV_QUARD_STAR_MAILBOX_H
-#define HW_RISCV_QUARD_STAR_MAILBOX_H
+#ifndef HW_RISCV_MAILBOX_H
+#define HW_RISCV_MAILBOX_H
 
 #include "hw/sysbus.h"
 #include "qom/object.h"
 #include "qemu/typedefs.h"
 
-#define TYPE_QUARD_STAR_MAILBOX_DEVICE "quard-star-mailbox"
-OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
+#define TYPE_RISCV_MAILBOX "riscv.mailbox"
+OBJECT_DECLARE_SIMPLE_TYPE(RISCVMailboxState, RISCV_MAILBOX)
 
 /* 通道数（对齐 ARM MHU v1 经典 low/high/secure 三通道） */
 #define RVMB_NUM_CHANNELS   3
@@ -47,7 +49,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
  *   irq_linux = OR_ch( stat[TL][ch] & ~mask[TL][ch] ) != 0
  *   irq_rtos  = OR_ch( stat[TR][ch] & ~mask[TR][ch] ) != 0
  */
-struct QuardStarMailboxState {
+struct RISCVMailboxState {
     /*< private >*/
     SysBusDevice parent_obj;
 
@@ -62,4 +64,4 @@ struct QuardStarMailboxState {
     uint32_t mask[RVMB_NUM_BANKS][RVMB_NUM_CHANNELS];
 };
 
-#endif /* HW_RISCV_QUARD_STAR_MAILBOX_H */
+#endif /* HW_RISCV_MAILBOX_H */

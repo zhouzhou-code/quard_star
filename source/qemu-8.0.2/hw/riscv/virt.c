@@ -33,6 +33,7 @@
 #include "target/riscv/pmu.h"
 #include "hw/riscv/riscv_hart.h"
 #include "hw/riscv/virt.h"
+#include "hw/riscv/riscv_mailbox.h"
 #include "hw/riscv/boot.h"
 #include "hw/riscv/numa.h"
 #include "hw/intc/riscv_aclint.h"
@@ -92,6 +93,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_FLASH] =        { 0x20000000,     0x4000000 },
     [VIRT_IMSIC_M] =      { 0x24000000, VIRT_IMSIC_MAX_SIZE },
     [VIRT_IMSIC_S] =      { 0x28000000, VIRT_IMSIC_MAX_SIZE },
+    [VIRT_MAILBOX] =      {   0x102000,        0x1000 },
     [VIRT_PCIE_ECAM] =    { 0x30000000,    0x10000000 },
     [VIRT_PCIE_MMIO] =    { 0x40000000,    0x40000000 },
     [VIRT_DRAM] =         { 0x80000000,           0x0 },
@@ -984,6 +986,29 @@ static void create_fdt_rtc(RISCVVirtState *s, const MemMapEntry *memmap,
     g_free(name);
 }
 
+/* RV-Mailbox 通用邮箱设备的设备树节点（供 Linux 平台驱动匹配） */
+static void create_fdt_mailbox(RISCVVirtState *s, const MemMapEntry *memmap,
+                               uint32_t irq_mmio_phandle)
+{
+    char *name;
+    MachineState *ms = MACHINE(s);
+
+    name = g_strdup_printf("/soc/mailbox@%lx", (long)memmap[VIRT_MAILBOX].base);
+    qemu_fdt_add_subnode(ms->fdt, name);
+    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "qemu,riscv-mailbox");
+    qemu_fdt_setprop_cells(ms->fdt, name, "reg",
+        0x0, memmap[VIRT_MAILBOX].base, 0x0, memmap[VIRT_MAILBOX].size);
+    qemu_fdt_setprop_cell(ms->fdt, name, "interrupt-parent", irq_mmio_phandle);
+    if (s->aia_type == VIRT_AIA_TYPE_NONE) {
+        qemu_fdt_setprop_cells(ms->fdt, name, "interrupts",
+            RV_MAILBOX_IRQ0, RV_MAILBOX_IRQ1);
+    } else {
+        qemu_fdt_setprop_cells(ms->fdt, name, "interrupts",
+            RV_MAILBOX_IRQ0, 0x4, RV_MAILBOX_IRQ1, 0x4);
+    }
+    g_free(name);
+}
+
 static void create_fdt_flash(RISCVVirtState *s, const MemMapEntry *memmap)
 {
     char *name;
@@ -1055,6 +1080,8 @@ static void create_fdt(RISCVVirtState *s, const MemMapEntry *memmap)
     create_fdt_uart(s, memmap, irq_mmio_phandle);
 
     create_fdt_rtc(s, memmap, irq_mmio_phandle);
+
+    create_fdt_mailbox(s, memmap, irq_mmio_phandle);
 
     create_fdt_flash(s, memmap);
     create_fdt_fw_cfg(s, memmap);
@@ -1509,6 +1536,20 @@ static void virt_machine_init(MachineState *machine)
 
     sysbus_create_simple("goldfish_rtc", memmap[VIRT_RTC].base,
         qdev_get_gpio_in(DEVICE(mmio_irqchip), RTC_IRQ));
+
+    /* RV-Mailbox 通用邮箱设备：单 MMIO + 两根中断线接到 mmio irqchip */
+    {
+        DeviceState *mb = qdev_new(TYPE_RISCV_MAILBOX);
+        SysBusDevice *mb_sbd = SYS_BUS_DEVICE(mb);
+
+        sysbus_realize_and_unref(mb_sbd, &error_fatal);
+        memory_region_add_subregion(system_memory, memmap[VIRT_MAILBOX].base,
+                                    sysbus_mmio_get_region(mb_sbd, 0));
+        sysbus_connect_irq(mb_sbd, 0,
+            qdev_get_gpio_in(DEVICE(mmio_irqchip), RV_MAILBOX_IRQ0));
+        sysbus_connect_irq(mb_sbd, 1,
+            qdev_get_gpio_in(DEVICE(mmio_irqchip), RV_MAILBOX_IRQ1));
+    }
 
     virt_flash_create(s);
 

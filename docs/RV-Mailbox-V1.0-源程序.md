@@ -1,22 +1,27 @@
-# RV-Mailbox 多核邮箱控制器及驱动软件 V1.0
+# RV-Mailbox —— QEMU RISC-V 平台通用邮箱设备及驱动软件 V1.0
 ## 源程序清单（软件著作权登记附件）
 
-> 软件全称：RV-Mailbox 多核邮箱控制器及驱动软件　|　版本：V1.0　|　语言：C
+> 软件全称：RV-Mailbox —— QEMU RISC-V 平台通用邮箱设备及驱动软件　|　版本：V1.0　|　语言：C
 > 本清单为软件全部核心源代码，由开发者独立编写，享有完整著作权。
-> 源代码总计约 1829 行（7 个源文件）。
+> 其中 §A 为通用邮箱设备模型与全部驱动/固件源码；§B 为将该设备接入 QEMU 标准
+> `virt` 机器所新增的代码（节选，仅列自主新增部分，不含 QEMU 上游原有代码）。
 
 ---
 
-## 文件：quard_star_mailbox.h（设备模型头：寄存器布局/状态结构）
+# §A 设备模型与驱动/固件源码
 
-路径：`source/qemu-8.0.2/include/hw/riscv/quard_star_mailbox.h`
+## 文件：riscv_mailbox.h（通用邮箱设备头：寄存器布局/状态结构）
+
+路径：`source/qemu-8.0.2/include/hw/riscv/riscv_mailbox.h`
 
 ```c
 /*
- * QEMU RISC-V RV-Mailbox Controller (Quard Star machine)
+ * QEMU RISC-V Mailbox Controller —— RV-Mailbox (通用 SysBus 设备)
  *
  * Copyright (c) 2025 Quard Star Project
  *
+ * 机器无关的多通道 doorbell 邮箱，填补 QEMU RISC-V 平台无邮箱设备的空白，
+ * 可挂载到任意 RISC-V 机器(quard_star / virt / ...)。
  * 参考 ARM MHU v1/v2 的 doorbell 编程模型，自主设计实现的多通道邮箱控制器。
  * 与 ARM MHU 无源码/RTL 关联，仅在寄存器编程范式上对齐（SET/CLEAR/STAT + MASK）。
  *
@@ -30,15 +35,15 @@
  * more details.
  */
 
-#ifndef HW_RISCV_QUARD_STAR_MAILBOX_H
-#define HW_RISCV_QUARD_STAR_MAILBOX_H
+#ifndef HW_RISCV_MAILBOX_H
+#define HW_RISCV_MAILBOX_H
 
 #include "hw/sysbus.h"
 #include "qom/object.h"
 #include "qemu/typedefs.h"
 
-#define TYPE_QUARD_STAR_MAILBOX_DEVICE "quard-star-mailbox"
-OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
+#define TYPE_RISCV_MAILBOX "riscv.mailbox"
+OBJECT_DECLARE_SIMPLE_TYPE(RISCVMailboxState, RISCV_MAILBOX)
 
 /* 通道数（对齐 ARM MHU v1 经典 low/high/secure 三通道） */
 #define RVMB_NUM_CHANNELS   3
@@ -61,7 +66,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(QuardStarMailboxState, QUARD_STAR_MAILBOX_DEVICE)
  *   irq_linux = OR_ch( stat[TL][ch] & ~mask[TL][ch] ) != 0
  *   irq_rtos  = OR_ch( stat[TR][ch] & ~mask[TR][ch] ) != 0
  */
-struct QuardStarMailboxState {
+struct RISCVMailboxState {
     /*< private >*/
     SysBusDevice parent_obj;
 
@@ -76,27 +81,32 @@ struct QuardStarMailboxState {
     uint32_t mask[RVMB_NUM_BANKS][RVMB_NUM_CHANNELS];
 };
 
-#endif /* HW_RISCV_QUARD_STAR_MAILBOX_H */
+#endif /* HW_RISCV_MAILBOX_H */
 ```
 
 ---
 
-## 文件：quard_star_mailbox.c（QEMU 邮箱设备模型主体）
+## 文件：riscv_mailbox.c（QEMU 通用 RISC-V 邮箱设备模型）
 
-路径：`source/qemu-8.0.2/hw/riscv/quard_star_mailbox.c`
+路径：`source/qemu-8.0.2/hw/riscv/riscv_mailbox.c`
 
 ```c
 /*
- * QEMU RISC-V RV-Mailbox Controller (Quard Star machine)
+ * QEMU RISC-V Mailbox Controller —— RV-Mailbox (通用 SysBus 设备)
  *
  * Copyright (c) 2025 Quard Star Project
  *
- * 多通道 doorbell 邮箱，用于 FreeRTOS(Hart7) 与 Linux(Hart0-6) 的 AMP 跨核通信。
+ * 填补 QEMU RISC-V 平台缺少邮箱/跨核通信设备的空白：一个机器无关、可挂载到
+ * 任意 RISC-V 机器(quard_star / virt / ...)的多通道 doorbell 邮箱。设备本体不依赖
+ * 任何具体机器，仅暴露 1 个 MMIO 区与 2 根中断线，由各机器自行决定基址与中断路由。
+ *
  * 寄存器编程范式参考 ARM MHU v1/v2（SET/CLEAR/STAT + MASK），自主设计实现，
  * 与 ARM 源码/RTL 无关联。
  *
- * 双 bank（to-Linux / to-RTOS）× 3 通道 × 32-bit doorbell；合并中断（MHU v2 风格）：
+ * 双 bank（bank0 / bank1）× 3 通道 × 32-bit doorbell；合并中断（MHU v2 风格）：
  * 某 bank 内任一通道 (STAT & ~MASK) != 0 即拉高该 bank 对应的中断线（电平）。
+ * 典型用法：bank0/irq0 发往一侧 OS，bank1/irq1 发往另一侧 OS（AMP 双向）；
+ * 单 OS 平台(如 virt)可两根中断都接到同一 PLIC 做自测/单向通知。
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -114,7 +124,7 @@ struct QuardStarMailboxState {
 #include "migration/vmstate.h"
 #include "hw/sysbus.h"
 #include "hw/irq.h"
-#include "hw/riscv/quard_star_mailbox.h"
+#include "hw/riscv/riscv_mailbox.h"
 
 /* 每 bank 基址与通道布局 */
 #define RVMB_BANK_TL_BASE   0x000        /* to-Linux  (IRQ50) */
@@ -155,7 +165,7 @@ static bool qsmb_decode(hwaddr offset, int *bank, int *ch, hwaddr *reg)
 }
 
 /* 重新计算某 bank 的中断线电平（合并中断，MHU v2 风格） */
-static void qsmb_update_irq(QuardStarMailboxState *s, int bank)
+static void qsmb_update_irq(RISCVMailboxState *s, int bank)
 {
     uint32_t pending = 0;
     int ch;
@@ -166,10 +176,10 @@ static void qsmb_update_irq(QuardStarMailboxState *s, int bank)
                  pending ? 1 : 0);
 }
 
-static uint64_t quard_star_mailbox_read(void *opaque, hwaddr offset,
+static uint64_t riscv_mailbox_read(void *opaque, hwaddr offset,
                                         unsigned size)
 {
-    QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(opaque);
+    RISCVMailboxState *s = RISCV_MAILBOX(opaque);
     int bank, ch;
     hwaddr reg;
 
@@ -208,10 +218,10 @@ static uint64_t quard_star_mailbox_read(void *opaque, hwaddr offset,
     }
 }
 
-static void quard_star_mailbox_write(void *opaque, hwaddr offset,
+static void riscv_mailbox_write(void *opaque, hwaddr offset,
                                      uint64_t value, unsigned size)
 {
-    QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(opaque);
+    RISCVMailboxState *s = RISCV_MAILBOX(opaque);
     uint32_t val = (uint32_t)value;
     int bank, ch;
     hwaddr reg;
@@ -260,9 +270,9 @@ static void quard_star_mailbox_write(void *opaque, hwaddr offset,
     }
 }
 
-static const MemoryRegionOps quard_star_mailbox_ops = {
-    .read = quard_star_mailbox_read,
-    .write = quard_star_mailbox_write,
+static const MemoryRegionOps riscv_mailbox_ops = {
+    .read = riscv_mailbox_read,
+    .write = riscv_mailbox_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
     .impl.min_access_size = 4,
     .impl.max_access_size = 4,
@@ -270,22 +280,22 @@ static const MemoryRegionOps quard_star_mailbox_ops = {
     .valid.max_access_size = 4,
 };
 
-static void quard_star_mailbox_init(Object *obj)
+static void riscv_mailbox_init(Object *obj)
 {
-    QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(obj);
+    RISCVMailboxState *s = RISCV_MAILBOX(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    memory_region_init_io(&s->iomem, obj, &quard_star_mailbox_ops,
-                          s, "quard-star-mailbox", 0x1000);
+    memory_region_init_io(&s->iomem, obj, &riscv_mailbox_ops,
+                          s, "riscv.mailbox", 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
 
     sysbus_init_irq(sbd, &s->irq_linux);   /* to-Linux bank → PLIC input 50 */
     sysbus_init_irq(sbd, &s->irq_rtos);    /* to-RTOS  bank → PLIC input 51 */
 }
 
-static void quard_star_mailbox_reset(DeviceState *dev)
+static void riscv_mailbox_reset(DeviceState *dev)
 {
-    QuardStarMailboxState *s = QUARD_STAR_MAILBOX_DEVICE(dev);
+    RISCVMailboxState *s = RISCV_MAILBOX(dev);
     int b, ch;
 
     /* 复位：状态全 0；屏蔽全 1（默认全部屏蔽，接收方需显式 unmask）*/
@@ -299,48 +309,209 @@ static void quard_star_mailbox_reset(DeviceState *dev)
     qemu_set_irq(s->irq_rtos, 0);
 }
 
-static const VMStateDescription vmstate_quard_star_mailbox = {
-    .name = TYPE_QUARD_STAR_MAILBOX_DEVICE,
+static const VMStateDescription vmstate_riscv_mailbox = {
+    .name = TYPE_RISCV_MAILBOX,
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT32_2DARRAY(stat, QuardStarMailboxState,
+        VMSTATE_UINT32_2DARRAY(stat, RISCVMailboxState,
                                RVMB_NUM_BANKS, RVMB_NUM_CHANNELS),
-        VMSTATE_UINT32_2DARRAY(mask, QuardStarMailboxState,
+        VMSTATE_UINT32_2DARRAY(mask, RISCVMailboxState,
                                RVMB_NUM_BANKS, RVMB_NUM_CHANNELS),
         VMSTATE_END_OF_LIST()
     }
 };
 
-static void quard_star_mailbox_class_init(ObjectClass *klass, void *data)
+static void riscv_mailbox_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->reset = quard_star_mailbox_reset;
+    dc->reset = riscv_mailbox_reset;
     dc->desc = "RV-Mailbox Controller (multi-channel doorbell)";
-    dc->vmsd = &vmstate_quard_star_mailbox;
+    dc->vmsd = &vmstate_riscv_mailbox;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }
 
-static const TypeInfo quard_star_mailbox_type_info = {
-    .name = TYPE_QUARD_STAR_MAILBOX_DEVICE,
+static const TypeInfo riscv_mailbox_type_info = {
+    .name = TYPE_RISCV_MAILBOX,
     .parent = TYPE_SYS_BUS_DEVICE,
-    .instance_size = sizeof(QuardStarMailboxState),
-    .instance_init = quard_star_mailbox_init,
-    .class_init = quard_star_mailbox_class_init,
+    .instance_size = sizeof(RISCVMailboxState),
+    .instance_init = riscv_mailbox_init,
+    .class_init = riscv_mailbox_class_init,
 };
 
-static void quard_star_mailbox_register_types(void)
+static void riscv_mailbox_register_types(void)
 {
-    type_register_static(&quard_star_mailbox_type_info);
+    type_register_static(&riscv_mailbox_type_info);
 }
 
-type_init(quard_star_mailbox_register_types)
+type_init(riscv_mailbox_register_types)
 ```
 
 ---
 
-## 文件：quard_star_rproc.h（remoteproc 驱动头：RVMB 寄存器偏移）
+## 文件：rv_mailbox_selftest.c（Linux 自测平台驱动，virt 演示）
+
+路径：`project/drivers/rv_mailbox_selftest/src/rv_mailbox_selftest.c`
+
+```c
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * RV-Mailbox 自测驱动（QEMU virt 通用平台演示）
+ *
+ * 目的：在 QEMU 标准 `virt` 机器上证明 RV-Mailbox 通用邮箱设备工作正常——
+ * 一个 Linux 平台驱动即可在 virt 上完成 doorbell 的"自环"测试：
+ *   probe 时 unmask bank0 ch0 bit0 → 写 SET 敲自己门铃 → 触发 PLIC 中断 →
+ *   ISR 读 STAT、写 CLEAR 应答 → 完成量唤醒 → 判定 PASS。
+ *
+ * 该驱动与具体机器无关，仅依赖设备树节点 compatible = "qemu,riscv-mailbox"。
+ *
+ * 编译（随 ./build.sh driver 自动编译）：
+ *   make KERNELDIR=<linux> CROSS_COMPILE=riscv64-unknown-linux-gnu-
+ * 使用：
+ *   insmod rv_mailbox_selftest.ko   # probe 自动跑自测，dmesg 看 PASS/FAIL
+ */
+
+#include <linux/module.h>
+#include <linux/platform_device.h>
+#include <linux/interrupt.h>
+#include <linux/of.h>
+#include <linux/io.h>
+#include <linux/completion.h>
+
+/* bank0（在 virt 上 bank0 的中断线 IRQ0 接到 PLIC→本 Linux） */
+#define RVMB_STAT          0x000   /* RO  doorbell 状态 */
+#define RVMB_SET           0x004   /* W1S 置位（敲门铃） */
+#define RVMB_CLEAR         0x008   /* W1C 清位（应答） */
+#define RVMB_MASK_STAT     0x00C   /* RO  屏蔽状态 */
+#define RVMB_MASK_SET      0x010   /* W1S 置屏蔽（关中断） */
+#define RVMB_MASK_CLEAR    0x014   /* W1C 清屏蔽（开中断） */
+
+#define RVMB_REVISION      0x0F0
+#define RVMB_NUM_CHANNELS  0x0F4
+#define RVMB_NUM_BANKS     0x0F8
+
+#define RVMB_DBELL_BIT     0x1     /* ch0 bit0 */
+#define RVMB_EXPECT_REV    0x0100  /* v1.0 */
+
+struct rvmb_selftest {
+	void __iomem *base;
+	int irq;
+	int irq_count;
+	u32 isr_stat;
+	struct completion done;
+};
+
+static irqreturn_t rvmb_isr(int irq, void *dev_id)
+{
+	struct rvmb_selftest *st = dev_id;
+
+	/* 读门铃状态 */
+	st->isr_stat = readl(st->base + RVMB_STAT);
+	/* W1C 清门铃位，电平随之落下 */
+	writel(RVMB_DBELL_BIT, st->base + RVMB_CLEAR);
+	st->irq_count++;
+
+	complete(&st->done);
+	return IRQ_HANDLED;
+}
+
+static int rvmb_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct rvmb_selftest *st;
+	struct resource *res;
+	u32 rev, nch, nbk, stat_after;
+	long ret;
+
+	st = devm_kzalloc(dev, sizeof(*st), GFP_KERNEL);
+	if (!st)
+		return -ENOMEM;
+	init_completion(&st->done);
+	platform_set_drvdata(pdev, st);
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	st->base = devm_ioremap_resource(dev, res);
+	if (IS_ERR(st->base))
+		return PTR_ERR(st->base);
+
+	/* 1) 读自描述寄存器，确认设备身份 */
+	rev = readl(st->base + RVMB_REVISION);
+	nch = readl(st->base + RVMB_NUM_CHANNELS);
+	nbk = readl(st->base + RVMB_NUM_BANKS);
+	dev_info(dev, "RV-Mailbox @ %pa  REVISION=0x%04x  NUM_CHANNELS=%u  NUM_BANKS=%u\n",
+		 &res->start, rev, nch, nbk);
+	if (rev != RVMB_EXPECT_REV)
+		dev_warn(dev, "unexpected REVISION (expect 0x%04x)\n", RVMB_EXPECT_REV);
+
+	/* 2) 申请 bank0 中断 */
+	st->irq = platform_get_irq(pdev, 0);
+	if (st->irq < 0)
+		return st->irq;
+	ret = devm_request_irq(dev, st->irq, rvmb_isr, 0, "rv_mailbox_selftest", st);
+	if (ret) {
+		dev_err(dev, "request_irq(%d) failed: %ld\n", st->irq, ret);
+		return ret;
+	}
+	dev_info(dev, "registered IRQ %d\n", st->irq);
+
+	/* 3) 自环测试：先确保清零并使能 bit0，再敲自己门铃 */
+	writel(RVMB_DBELL_BIT, st->base + RVMB_CLEAR);       /* 清残留 */
+	writel(RVMB_DBELL_BIT, st->base + RVMB_MASK_CLEAR);  /* unmask bit0 */
+	dev_info(dev, "self-test: ringing doorbell (write SET bit0)...\n");
+	writel(RVMB_DBELL_BIT, st->base + RVMB_SET);         /* 敲门铃 → 触发中断 */
+
+	/* 4) 等中断回来 */
+	if (!wait_for_completion_timeout(&st->done, msecs_to_jiffies(1000))) {
+		dev_err(dev, "self-test FAIL: no interrupt within 1s\n");
+		writel(RVMB_DBELL_BIT, st->base + RVMB_MASK_SET); /* 复屏蔽 */
+		return -ETIMEDOUT;
+	}
+
+	stat_after = readl(st->base + RVMB_STAT);
+	dev_info(dev,
+		 "self-test PASS: irq_count=%d, STAT-in-ISR=0x%x, STAT-after-clear=0x%x\n",
+		 st->irq_count, st->isr_stat, stat_after);
+
+	/* 收尾：重新屏蔽，保持设备空闲 */
+	writel(RVMB_DBELL_BIT, st->base + RVMB_MASK_SET);
+	return 0;
+}
+
+static int rvmb_remove(struct platform_device *pdev)
+{
+	struct rvmb_selftest *st = platform_get_drvdata(pdev);
+
+	if (st && st->base)
+		writel(RVMB_DBELL_BIT, st->base + RVMB_MASK_SET);
+	return 0;
+}
+
+static const struct of_device_id rvmb_of_match[] = {
+	{ .compatible = "qemu,riscv-mailbox", },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, rvmb_of_match);
+
+static struct platform_driver rvmb_driver = {
+	.probe = rvmb_probe,
+	.remove = rvmb_remove,
+	.driver = {
+		.name = "rv_mailbox_selftest",
+		.of_match_table = rvmb_of_match,
+	},
+};
+module_platform_driver(rvmb_driver);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Quard Star Project");
+MODULE_DESCRIPTION("RV-Mailbox self-test driver (QEMU virt demo)");
+MODULE_VERSION("1.0");
+```
+
+---
+
+## 文件：quard_star_rproc.h（remoteproc 驱动头）
 
 路径：`project/drivers/remoteproc/quard_star_rproc.h`
 
@@ -429,7 +600,7 @@ type_init(quard_star_mailbox_register_types)
 
 ---
 
-## 文件：quard_star_rproc.c（Linux remoteproc 驱动）
+## 文件：quard_star_rproc.c（Linux remoteproc 驱动，AMP 承载 RPMsg）
 
 路径：`project/drivers/remoteproc/quard_star_rproc.c`
 
@@ -1221,7 +1392,7 @@ MODULE_VERSION("1.0");
 
 ---
 
-## 文件：hwspecs.h（可信域硬件规格头：寄存器偏移）
+## 文件：hwspecs.h（可信域寄存器偏移）
 
 路径：`project/trusted_domain/bsp_include/hwspecs.h`
 
@@ -1389,7 +1560,7 @@ extern "C" {
 
 ---
 
-## 文件：simple_rpmsg.c（FreeRTOS 侧轻量 RPMsg 收发实现）
+## 文件：simple_rpmsg.c（FreeRTOS 侧轻量 RPMsg 收发）
 
 路径：`project/trusted_domain/simple_rpmsg.c`
 
@@ -1898,5 +2069,114 @@ void simple_rpmsg_poll(void)
 ```
 
 ---
+
+# §B 接入 QEMU 标准 virt 机器的新增代码（节选，diff 格式）
+
+下列改动把通用邮箱设备挂载到 QEMU 标准 `virt` 机器：分配 MMIO 基址、接两根
+中断线到 PLIC/APLIC、生成 `compatible="qemu,riscv-mailbox"` 的设备树节点。
+
+```diff
+diff --git a/source/qemu-8.0.2/hw/riscv/virt.c b/source/qemu-8.0.2/hw/riscv/virt.c
+index 4e3efbee16f0..7455acedc638 100644
+--- a/source/qemu-8.0.2/hw/riscv/virt.c
++++ b/source/qemu-8.0.2/hw/riscv/virt.c
+@@ -33,6 +33,7 @@
+ #include "target/riscv/pmu.h"
+ #include "hw/riscv/riscv_hart.h"
+ #include "hw/riscv/virt.h"
++#include "hw/riscv/riscv_mailbox.h"
+ #include "hw/riscv/boot.h"
+ #include "hw/riscv/numa.h"
+ #include "hw/intc/riscv_aclint.h"
+@@ -92,6 +93,7 @@ static const MemMapEntry virt_memmap[] = {
+     [VIRT_FLASH] =        { 0x20000000,     0x4000000 },
+     [VIRT_IMSIC_M] =      { 0x24000000, VIRT_IMSIC_MAX_SIZE },
+     [VIRT_IMSIC_S] =      { 0x28000000, VIRT_IMSIC_MAX_SIZE },
++    [VIRT_MAILBOX] =      {   0x102000,        0x1000 },
+     [VIRT_PCIE_ECAM] =    { 0x30000000,    0x10000000 },
+     [VIRT_PCIE_MMIO] =    { 0x40000000,    0x40000000 },
+     [VIRT_DRAM] =         { 0x80000000,           0x0 },
+@@ -984,6 +986,29 @@ static void create_fdt_rtc(RISCVVirtState *s, const MemMapEntry *memmap,
+     g_free(name);
+ }
+ 
++/* RV-Mailbox 通用邮箱设备的设备树节点（供 Linux 平台驱动匹配） */
++static void create_fdt_mailbox(RISCVVirtState *s, const MemMapEntry *memmap,
++                               uint32_t irq_mmio_phandle)
++{
++    char *name;
++    MachineState *ms = MACHINE(s);
++
++    name = g_strdup_printf("/soc/mailbox@%lx", (long)memmap[VIRT_MAILBOX].base);
++    qemu_fdt_add_subnode(ms->fdt, name);
++    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "qemu,riscv-mailbox");
++    qemu_fdt_setprop_cells(ms->fdt, name, "reg",
++        0x0, memmap[VIRT_MAILBOX].base, 0x0, memmap[VIRT_MAILBOX].size);
++    qemu_fdt_setprop_cell(ms->fdt, name, "interrupt-parent", irq_mmio_phandle);
++    if (s->aia_type == VIRT_AIA_TYPE_NONE) {
++        qemu_fdt_setprop_cells(ms->fdt, name, "interrupts",
++            RV_MAILBOX_IRQ0, RV_MAILBOX_IRQ1);
++    } else {
++        qemu_fdt_setprop_cells(ms->fdt, name, "interrupts",
++            RV_MAILBOX_IRQ0, 0x4, RV_MAILBOX_IRQ1, 0x4);
++    }
++    g_free(name);
++}
++
+ static void create_fdt_flash(RISCVVirtState *s, const MemMapEntry *memmap)
+ {
+     char *name;
+@@ -1056,6 +1081,8 @@ static void create_fdt(RISCVVirtState *s, const MemMapEntry *memmap)
+ 
+     create_fdt_rtc(s, memmap, irq_mmio_phandle);
+ 
++    create_fdt_mailbox(s, memmap, irq_mmio_phandle);
++
+     create_fdt_flash(s, memmap);
+     create_fdt_fw_cfg(s, memmap);
+     create_fdt_pmu(s);
+@@ -1510,6 +1537,20 @@ static void virt_machine_init(MachineState *machine)
+     sysbus_create_simple("goldfish_rtc", memmap[VIRT_RTC].base,
+         qdev_get_gpio_in(DEVICE(mmio_irqchip), RTC_IRQ));
+ 
++    /* RV-Mailbox 通用邮箱设备：单 MMIO + 两根中断线接到 mmio irqchip */
++    {
++        DeviceState *mb = qdev_new(TYPE_RISCV_MAILBOX);
++        SysBusDevice *mb_sbd = SYS_BUS_DEVICE(mb);
++
++        sysbus_realize_and_unref(mb_sbd, &error_fatal);
++        memory_region_add_subregion(system_memory, memmap[VIRT_MAILBOX].base,
++                                    sysbus_mmio_get_region(mb_sbd, 0));
++        sysbus_connect_irq(mb_sbd, 0,
++            qdev_get_gpio_in(DEVICE(mmio_irqchip), RV_MAILBOX_IRQ0));
++        sysbus_connect_irq(mb_sbd, 1,
++            qdev_get_gpio_in(DEVICE(mmio_irqchip), RV_MAILBOX_IRQ1));
++    }
++
+     virt_flash_create(s);
+ 
+     for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
+diff --git a/source/qemu-8.0.2/include/hw/riscv/virt.h b/source/qemu-8.0.2/include/hw/riscv/virt.h
+index e5c474b26ebc..05bd280888e5 100644
+--- a/source/qemu-8.0.2/include/hw/riscv/virt.h
++++ b/source/qemu-8.0.2/include/hw/riscv/virt.h
+@@ -82,12 +82,15 @@ enum {
+     VIRT_PCIE_MMIO,
+     VIRT_PCIE_PIO,
+     VIRT_PLATFORM_BUS,
+-    VIRT_PCIE_ECAM
++    VIRT_PCIE_ECAM,
++    VIRT_MAILBOX           /* RV-Mailbox 通用邮箱设备 */
+ };
+ 
+ enum {
+     UART0_IRQ = 10,
+     RTC_IRQ = 11,
++    RV_MAILBOX_IRQ0 = 12,  /* RV-Mailbox bank0 → mmio irqchip */
++    RV_MAILBOX_IRQ1 = 13,  /* RV-Mailbox bank1 → mmio irqchip */
+     VIRTIO_IRQ = 1, /* 1 to 8 */
+     VIRTIO_COUNT = 8,
+     PCIE_IRQ = 0x20, /* 32 to 35 */
+```
 
 *—— 源程序清单结束 ——*

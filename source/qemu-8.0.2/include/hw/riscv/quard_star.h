@@ -5,7 +5,7 @@
 #include "hw/sysbus.h"
 #include "qom/object.h"
 #include "hw/block/flash.h"
-#include "hw/riscv/quard_star_mailbox.h"
+#include "hw/riscv/riscv_mailbox.h"
 
 #define QUARD_STAR_CPUS_MAX 8
 #define QUARD_STAR_SOCKETS_MAX 8
@@ -24,7 +24,7 @@ struct QuardStarState {
     PFlashCFI01 *flash;
     DeviceState *plic[QUARD_STAR_SOCKETS_MAX]; //8个plic?连到8个hart上
     FWCfgState *fw_cfg;
-    QuardStarMailboxState *mailbox; // Mailbox device for AMP IPC
+    RISCVMailboxState *mailbox; // Mailbox device for AMP IPC
 };
 
 enum {

@@ -82,12 +82,15 @@ enum {
     VIRT_PCIE_MMIO,
     VIRT_PCIE_PIO,
     VIRT_PLATFORM_BUS,
-    VIRT_PCIE_ECAM
+    VIRT_PCIE_ECAM,
+    VIRT_MAILBOX           /* RV-Mailbox 通用邮箱设备 */
 };
 
 enum {
     UART0_IRQ = 10,
     RTC_IRQ = 11,
+    RV_MAILBOX_IRQ0 = 12,  /* RV-Mailbox bank0 → mmio irqchip */
+    RV_MAILBOX_IRQ1 = 13,  /* RV-Mailbox bank1 → mmio irqchip */
     VIRTIO_IRQ = 1, /* 1 to 8 */
     VIRTIO_COUNT = 8,
     PCIE_IRQ = 0x20, /* 32 to 35 */

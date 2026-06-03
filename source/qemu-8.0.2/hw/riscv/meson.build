@@ -11,6 +11,7 @@ riscv_ss.add(when: 'CONFIG_SPIKE', if_true: files('spike.c'))
 riscv_ss.add(when: 'CONFIG_MICROCHIP_PFSOC', if_true: files('microchip_pfsoc.c'))
 riscv_ss.add(when: 'CONFIG_ACPI', if_true: files('virt-acpi-build.c'))
 riscv_ss.add(when: 'CONFIG_QUARD_STAR', if_true: files('quard_star.c'))
-riscv_ss.add(when: 'CONFIG_QUARD_STAR', if_true: files('quard_star_mailbox.c'))
+# 通用 RISC-V mailbox 设备(quard_star 与 virt 共用)，无条件编译
+riscv_ss.add(files('riscv_mailbox.c'))
 
 hw_arch += {'riscv': riscv_ss}
