@@ -463,63 +463,6 @@ build_openamp_lib() {
     log_info "open-amp built: ${OPENAMP_DIR}/cmake/build/lib/libopen_amp.a"
 }
 
-build_openamp_adapter() {
-    cd "${SHELL_FOLDER}"
-    log_step "Building OpenAMP Adapter Layer for FreeRTOS"
-    check_dir "${OUTPUT_DIR}/openamp_adapter"
-
-    # 确保依赖库已构建
-    if [ ! -f "${LIBMETAL_DIR}/build/lib/libmetal.a" ]; then
-        log_info "libmetal not found, building it first..."
-        build_libmetal
-    fi
-
-    if [ ! -f "${OPENAMP_DIR}/cmake/build/libopenamp.a" ]; then
-        log_info "open-amp not found, building it first..."
-        build_openamp_lib
-    fi
-
-    # 编译 openamp_adapter 中的适配代码
-    cd "${TRUSTED_DOMAIN_DIR}"
-
-    if [ "${BUILD_MODE}" == "clean" ]; then
-        rm -rf build/openamp_adapter
-        return 0
-    elif [ "${BUILD_MODE}" == "rebuild" ]; then
-        rm -rf build/openamp_adapter
-    fi
-
-    # 创建输出目录
-    mkdir -p build/openamp_adapter/libmetal
-    mkdir -p build/openamp_adapter/openamp
-    mkdir -p lib
-
-    # 编译 libmetal 适配层
-    log_info "Compiling libmetal adapter layer..."
-    for src in openamp_adapter/libmetal/*.c; do
-        if [ -f "$src" ]; then
-            obj="build/openamp_adapter/libmetal/$(basename "$src" .c).o"
-            log_info "Compiling $src"
-            ${NEWLIB_ELF_CROSS_PREFIX}-gcc ${CFLAGS_FREERTOS} -c "$src" -o "$obj"
-        fi
-    done
-
-    # 编译 openamp 适配层
-    log_info "Compiling openamp adapter layer..."
-    for src in openamp_adapter/openamp/*.c; do
-        if [ -f "$src" ]; then
-            obj="build/openamp_adapter/openamp/$(basename "$src" .c).o"
-            log_info "Compiling $src"
-            ${NEWLIB_ELF_CROSS_PREFIX}-gcc ${CFLAGS_FREERTOS} -c "$src" -o "$obj"
-        fi
-    done
-
-    # 打包成静态库
-    ${NEWLIB_ELF_CROSS_PREFIX}-ar rcs lib/libopenamp_adapter.a build/openamp_adapter/*/*.o 2>/dev/null || true
-
-    log_info "OpenAMP adapter built: ${TRUSTED_DOMAIN_DIR}/lib/libopenamp_adapter.a"
-}
-
 build_driver() {
     cd "${SHELL_FOLDER}"
     log_step "Building Linux Drivers"
@@ -1146,9 +1089,6 @@ case "$TARGET" in
         ;;
     "openamp")
         build_openamp_lib
-        ;;
-    "openamp-adapter")
-        build_openamp_adapter
         ;;
     "help"|*)
         usage
