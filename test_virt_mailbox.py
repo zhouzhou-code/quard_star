@@ -69,7 +69,7 @@ try:
     dt = run("cat /proc/device-tree/soc/mailbox@102000/compatible 2>/dev/null", "DT", 8)
     res["dt_node"] = "qemu,riscv-mailbox" in dt
 
-    run("insmod /root/rv_mailbox_selftest.ko 2>&1", "INS", 15)
+    run("insmod /driver/rv_mailbox_selftest.ko 2>&1", "INS", 15)
 
     txt = run("dmesg | grep -iE 'RV-Mailbox|self-test'", "DM", 12)
     res["rev_ok"] = "REVISION=0x0100" in txt
