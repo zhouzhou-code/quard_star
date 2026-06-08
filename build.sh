@@ -291,18 +291,20 @@ build_freertos() {
         make clean
     fi
 
-    # 检查是否需要链接 OpenAMP 库
-    if [ -f "${LIBMETAL_DIR}/lib/libmetal.a" ] && [ -f "${OPENAMP_DIR}/cmake/build/libopenamp.a" ]; then
-        log_info "Building FreeRTOS with OpenAMP support..."
-        # 更新 Makefile 中的库路径
-        make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-" \
-             WITH_OPENAMP=1 \
-             LIBMETAL_LIB="${LIBMETAL_DIR}/lib/libmetal.a" \
-             OPENAMP_LIB="${OPENAMP_DIR}/cmake/build/libopenamp.a"
-    else
-        log_info "Building FreeRTOS without OpenAMP (libraries not found)..."
-        make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
+    # FreeRTOS 侧 rpmsg 用 OpenAMP 标准库(open-amp + libmetal)。Makefile 固定链接这两个
+    # 静态库，故缺库时先构建。
+    if [ ! -f "${LIBMETAL_DIR}/build/lib/libmetal.a" ]; then
+        log_info "libmetal.a 不存在，先构建 libmetal..."
+        build_libmetal
+        cd "${TRUSTED_DOMAIN_DIR}"
     fi
+    if [ ! -f "${OPENAMP_DIR}/cmake/build/lib/libopen_amp.a" ]; then
+        log_info "libopen_amp.a 不存在，先构建 open-amp..."
+        build_openamp_lib
+        cd "${TRUSTED_DOMAIN_DIR}"
+    fi
+    log_info "Building FreeRTOS with OpenAMP (open-amp + libmetal)..."
+    make CROSS_COMPILE="${NEWLIB_ELF_CROSS_PREFIX}-"
 
     cp "${TRUSTED_DOMAIN_DIR}/build/trusted_fw.bin" "${OUTPUT_DIR}/trusted_domain/"
     cp "${TRUSTED_DOMAIN_DIR}/build/resource_table.bin" "${OUTPUT_DIR}/trusted_domain/"
@@ -381,19 +383,24 @@ build_libmetal() {
     # 设置编译器路径
     export PATH="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin:$PATH"
 
-    # 使用 CMake 构建（FreeRTOS 配置）
-    # 注意：暂时不编译 FreeRTOS system 层，等后续移植
+    # 用 libmetal 自带的 freertos system 层(io/irq/time/mutex 走 FreeRTOS API)。
+    # MACHINE=template 的 machine 原语(cache/irq)在 QEMU 上空桩即可(一致性内存+轮询)。
+    # 需提供 FreeRTOS 内核头 + FreeRTOSConfig.h + riscv portmacro 依赖头。
+    local FR="${TRUSTED_DOMAIN_DIR}/FreeRTOS-Kernel-v10.4.3"
     cmake .. \
         -DCMAKE_TOOLCHAIN_FILE=../cmake/platforms/cross-generic-gcc.cmake \
         -DCROSS_PREFIX=riscv64-unknown-elf- \
         -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
+        -DPROJECT_SYSTEM=freertos -DMACHINE=template \
+        -DWITH_DOC=OFF -DWITH_TESTS=OFF -DWITH_EXAMPLES=OFF \
         -DCMAKE_INSTALL_PREFIX="$(pwd)/../lib" \
-        -DCMAKE_C_FLAGS="-I${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
+        -DCMAKE_C_FLAGS="-march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding \
+            -I${FR}/include -I${FR}/portable/GCC/RISC-V-S \
+            -I${TRUSTED_DOMAIN_DIR} -I${TRUSTED_DOMAIN_DIR}/riscv \
+            -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
-        -DMETAL_BUILD_SHARED_LIBS=OFF \
-        -DWITH_FREERTOS_LIB=OFF \
-        -DMETAL_MAX_DEVICE_REGIONS=1
+        -DMETAL_BUILD_SHARED_LIBS=OFF
 
     make -j"${JOBS}"
     make install
@@ -407,7 +414,7 @@ build_openamp_lib() {
     check_dir "${OUTPUT_DIR}/openamp"
 
     # 确保 libmetal 已构建
-    if [ ! -f "${LIBMETAL_DIR}/lib/libmetal.a" ]; then
+    if [ ! -f "${LIBMETAL_DIR}/build/lib/libmetal.a" ]; then
         log_info "libmetal not found, building it first..."
         build_libmetal
     fi
@@ -434,22 +441,26 @@ build_openamp_lib() {
     # 设置编译器路径
     export PATH="${NEWLIB_ELF_CROSS_COMPILE_DIR}/bin:$PATH"
 
-    # 使用 CMake 构建 - 使用 libmetal 的 generic 工具链
+    # 用我们的 libmetal(含生成头 build/lib/include) + 相同 arch flags 构建 open-amp
+    local FR="${TRUSTED_DOMAIN_DIR}/FreeRTOS-Kernel-v10.4.3"
     cmake ../.. \
         -DCMAKE_TOOLCHAIN_FILE=${LIBMETAL_DIR}/cmake/platforms/cross-generic-gcc.cmake \
         -DCROSS_PREFIX=riscv64-unknown-elf- \
-        -DCMAKE_INSTALL_PREFIX="${OPENAMP_DIR}/lib" \
-        -DCMAKE_C_FLAGS="-I${OPENAMP_ADAPTER_DIR}/include -I${BSP_INCLUDE_DIR} -I${LIBMETAL_DIR}/lib/include -DFREERTOS" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_FIND_ROOT_PATH="${LIBMETAL_DIR}/lib" \
-        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
-        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
-        -DWITH_LIBMETAL_FIND=OFF
+        -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
+        -DPROJECT_SYSTEM=freertos -DMACHINE=template \
+        -DWITH_APPS=OFF -DWITH_PROXY=OFF -DWITH_VIRTIO_MMIO_DRV=OFF \
+        -DWITH_LIBMETAL_FIND=OFF -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_INSTALL_PREFIX="${OPENAMP_DIR}/lib_install" \
+        -DCMAKE_C_FLAGS="-march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding \
+            -I${LIBMETAL_DIR}/lib/include -I${LIBMETAL_DIR}/build/lib/include \
+            -I${FR}/include -I${FR}/portable/GCC/RISC-V-S \
+            -I${TRUSTED_DOMAIN_DIR} -I${TRUSTED_DOMAIN_DIR}/riscv \
+            -I${BSP_INCLUDE_DIR} -DMETAL_MAX_DEVICE_REGIONS=1" \
+        -DCMAKE_BUILD_TYPE=Release
 
     make -j"${JOBS}"
 
-    log_info "open-amp built: ${OPENAMP_DIR}/cmake/build/libopenamp.a"
+    log_info "open-amp built: ${OPENAMP_DIR}/cmake/build/lib/libopen_amp.a"
 }
 
 build_openamp_adapter() {
@@ -458,7 +469,7 @@ build_openamp_adapter() {
     check_dir "${OUTPUT_DIR}/openamp_adapter"
 
     # 确保依赖库已构建
-    if [ ! -f "${LIBMETAL_DIR}/lib/libmetal.a" ]; then
+    if [ ! -f "${LIBMETAL_DIR}/build/lib/libmetal.a" ]; then
         log_info "libmetal not found, building it first..."
         build_libmetal
     fi

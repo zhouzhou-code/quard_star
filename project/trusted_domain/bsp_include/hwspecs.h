@@ -109,6 +109,7 @@ extern "C" {
  */
 #define MHU_CPU0_SET            0x04
 #define MHU_CPU0_CLR            0x08
+#define MHU_CPU1_STAT           0x10
 #define MHU_CPU1_SET            0x14
 #define MHU_CPU1_CLR            0x18
 #define MHU_RPMSG_DBELL         0x1     /* doorbell bit0 */

@@ -39,10 +39,16 @@ INCLUDES  = $(foreach dir, $(SRC_DIRS), -I$(dir))
 INCLUDES += -I FreeRTOS-Kernel-v10.4.3/include
 INCLUDES += -I FreeRTOS-Kernel-v10.4.3/portable/MemMang
 INCLUDES += -I riscv/
-INCLUDES += -I openamp_adapter/include
 INCLUDES += -I bsp_include
-INCLUDES += -I ../freertos_app/openamp_adapter/include
-INCLUDES += -I ../freertos_app/openamp_adapter/include/metal
+
+# OpenAMP(open-amp + libmetal) 标准库头/库（本分支 FreeRTOS 侧 rpmsg 用 OpenAMP）
+ROOT     := $(shell cd $(CURDIR)/../.. && pwd)
+LIBMETAL := $(ROOT)/source/third_party/libmetal
+OPENAMP  := $(ROOT)/source/third_party/open-amp
+INCLUDES += -I $(LIBMETAL)/lib/include
+INCLUDES += -I $(LIBMETAL)/build/lib/include
+INCLUDES += -I $(OPENAMP)/lib/include
+OPENAMP_LIBS := $(OPENAMP)/cmake/build/lib/libopen_amp.a $(LIBMETAL)/build/lib/libmetal.a
 
 
 # 【6. 自动抓取食材 (匹配源码)】
@@ -85,10 +91,8 @@ LDFLAGS += -Wl,-Map=$(TARGET).map
 # LDFLAGS += --specs=nano.specs
 LDFLAGS += --specs=nosys.specs
 
-# OpenAMP 适配层库（暂时禁用，因为依赖太复杂）
-# OPENAMP_ADAPTER_LIB = ../freertos_app/lib/libopenamp_adapter.a
-# LDFLAGS += $(OPENAMP_ADAPTER_LIB)
-LIBS =
+# 链接 OpenAMP 标准库（open-amp 依赖 libmetal，故 open_amp 在前、metal 在后）
+LIBS = $(OPENAMP_LIBS)
 
 # 【10. 伪目标定义】
 .PHONY: all clean dump size

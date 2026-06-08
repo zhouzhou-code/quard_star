@@ -18,8 +18,8 @@
 #include "hwspecs.h"
 #include "resource_table.h"
 
-/* Simple RPMsg */
-#include "simple_rpmsg.h"
+/* OpenAMP RPMsg（业界标准复用件，替代手写 simple_rpmsg）*/
+#include "openamp_rpmsg.h"
 
 /* ============================================================================
  * 宏定义
@@ -28,35 +28,7 @@
 #define MAIN_TASK_PRIORITY      (tskIDLE_PRIORITY + 1)
 #define MAIN_TASK_STACK_SIZE    2048
 
-/* ============================================================================
- * RPMsg 测试
- * ============================================================================ */
-
-static struct rpmsg_endpoint g_test_ept;
-
-/**
- * RPMsg 消息接收回调
- */
-static void rpmsg_rx_cb(struct rpmsg_endpoint *ept, void *data,
-                       size_t len, uint32_t src)
-{
-    const char *msg = (const char *)data;
-
-    uart8250_puts("\r\n[RPMsg RX] From ");
-    /* 简单打印 src 地址 */
-    if (src < 10) {
-        uart8250_putc('0' + src);
-    } else {
-        uart8250_puts("addr ");
-    }
-    uart8250_puts(": ");
-    uart8250_puts(msg);
-    uart8250_puts("\r\n");
-
-    /* 回显消息 */
-    simple_rpmsg_send(ept, "Echo from FreeRTOS: ", 21);
-    simple_rpmsg_send(ept, msg, len);
-}
+/* RPMsg 接收 + 回显逻辑已内置于 openamp_rpmsg.c 的端点回调 */
 
 /* ============================================================================
  * UART 输出函数
@@ -265,33 +237,16 @@ static void main_task(void *pvParameters)
     /* ======================================================== */
     
 
-    /* === Step 3: Linux attach 完成后再初始化 RPMsg === */
-    uart8250_puts("[Step 3] Initializing Simple RPMsg...\r\n");
+    /* === Step 3: Linux attach 完成后再初始化 OpenAMP RPMsg === */
+    uart8250_puts("[Step 3] Initializing OpenAMP RPMsg...\r\n");
 
-    if (simple_rpmsg_init() != 0) {
-        uart8250_puts("Failed to initialize RPMsg\r\n");
+    if (openamp_rpmsg_init() != 0) {
+        uart8250_puts("Failed to initialize OpenAMP RPMsg\r\n");
         goto error;
     }
 
-    uart8250_puts("RPMsg initialized\r\n");
+    uart8250_puts("OpenAMP RPMsg initialized + endpoint announced\r\n");
     uart8250_puts("\r\n");
-
-    /* === Step 4: 创建 RPMsg 端点（现在 Linux 已经准备好了）=== */
-    uart8250_puts("[Step 4] Creating RPMsg endpoint...\r\n");
-
-    if (simple_rpmsg_create_ept(&g_test_ept, "freertos-test",
-                                rpmsg_rx_cb, NULL) != 0) {
-        uart8250_puts("Failed to create endpoint\r\n");
-        goto error;
-    }
-
-    uart8250_puts("RPMsg endpoint created: freertos-test\r\n");
-    uart8250_puts("\r\n");
-
-    /* 现在可以安全地发送 NS 宣告包 */
-    if (simple_rpmsg_announce_endpoint() != 0) {
-        uart8250_puts("Failed to announce endpoint\r\n");
-    }
 
     uart8250_puts("========================================\r\n");
     uart8250_puts("FreeRTOS Resource Table Ready!\r\n");
@@ -310,7 +265,7 @@ static void main_task(void *pvParameters)
         uart8250_puts("Task main is running... Hart 7\r\n");
 
         /* 轮询 RPMsg 消息 */
-        simple_rpmsg_poll();
+        openamp_rpmsg_poll();
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
