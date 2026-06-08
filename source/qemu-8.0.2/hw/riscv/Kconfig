@@ -32,6 +32,7 @@ config RISCV_VIRT
     imply TPM_TIS_SYSBUS
     select RISCV_NUMA
     select GOLDFISH_RTC
+    select ARMSSE_MHU
     select PCI
     select PCI_EXPRESS_GENERIC_BRIDGE
     select PFLASH_CFI01
@@ -93,5 +94,6 @@ config QUARD_STAR
     select RISCV_ACLINT
     select SIFIVE_PLIC
     select GOLDFISH_RTC
+    select ARMSSE_MHU
     
 

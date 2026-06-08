@@ -12,7 +12,7 @@
 
 #include "hw/riscv/riscv_hart.h"
 #include "hw/riscv/quard_star.h"
-#include "hw/riscv/riscv_mailbox.h"
+#include "hw/misc/armsse-mhu.h"
 #include "hw/riscv/boot.h"
 #include "hw/riscv/numa.h"
 #include "hw/intc/riscv_aclint.h"
@@ -256,29 +256,30 @@ static void quard_star_rtc_create(MachineState *machine)
         qdev_get_gpio_in(DEVICE(s->plic[0]), QUARD_STAR_RTC_IRQ));
 }
 
-/* 创建 Mailbox (AMP IPC) */
+/* 创建 Mailbox (AMP IPC)
+ *
+ * 直接复用 QEMU 上游通用设备 ARM SSE-200 MHU(hw/misc/armsse-mhu.c)——它是一个
+ * 机器无关的 SysBus 设备(1 个 MMIO + 2 根中断线)，实现标准 ARM MHU 寄存器模型
+ * (CPU0/CPU1 INTR_STAT/SET/CLR + Primecell PID/CID)。
+ *   - cpu0irq(sysbus IRQ 0) -> PLIC 50：FreeRTOS 经 CPU0INTR_SET 通知 Linux
+ *   - cpu1irq(sysbus IRQ 1) -> PLIC 51：Linux 经 CPU1INTR_SET 通知 FreeRTOS
+ */
 static void quard_star_mailbox_create(MachineState *machine)
 {
     QuardStarState *s = RISCV_VIRT_MACHINE(machine);
     DeviceState *dev;
     SysBusDevice *sbd;
 
-    /* 创建 Mailbox 设备 */
-    dev = qdev_new(TYPE_RISCV_MAILBOX);
+    dev = qdev_new(TYPE_ARMSSE_MHU);
     sbd = SYS_BUS_DEVICE(dev);
 
-    /* 初始化设备 */
     sysbus_realize_and_unref(sbd, &error_fatal);
 
-    /* 映射 MMIO 空间 */
     memory_region_add_subregion(get_system_memory(),
                                 quard_star_memmap[QUARD_STAR_MAILBOX].base,
                                 sysbus_mmio_get_region(sbd, 0));
 
-    /* 连接中断线到 PLIC
-     * irq_linux -> PLIC input 50 (Linux/Hart 1-7)
-     * irq_rtos  -> PLIC input 51 (FreeRTOS/Hart 0)
-     */
+    /* cpu0irq -> PLIC 50(to-Linux)，cpu1irq -> PLIC 51(to-RTOS) */
     sysbus_connect_irq(sbd, 0,
                        qdev_get_gpio_in_named(DEVICE(s->plic[0]), NULL,
                                               QUARD_STAR_MAILBOX_IRQ_LINUX));
@@ -286,8 +287,7 @@ static void quard_star_mailbox_create(MachineState *machine)
                        qdev_get_gpio_in_named(DEVICE(s->plic[0]), NULL,
                                               QUARD_STAR_MAILBOX_IRQ_RTOS));
 
-    /* 保存设备状态指针 */
-    s->mailbox = RISCV_MAILBOX(dev);
+    s->mailbox = ARMSSE_MHU(dev);
 }
 
 /* 创建virtio */

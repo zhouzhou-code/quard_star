@@ -101,25 +101,25 @@ extern "C" {
 #define MAILBOX_REG_SIZE        0x1000
 
 /**
- * Mailbox 寄存器（RV-Mailbox：参考 ARM MHU v1/v2 自主实现）
- *   双 bank × 3 通道 × 32-bit doorbell。to-Linux @0x000 (FreeRTOS 写它通知 Linux, IRQ50)，
- *   to-RTOS @0x100 (IRQ51)。每通道 stride 0x20：STAT/SET(W1S)/CLEAR(W1C)/MASK_*。
- *   FreeRTOS 是发送方：写 to-Linux ch0 SET 即 kick；接收靠轮询 vring。
+ * Mailbox 寄存器：标准 ARM MHU(SSE-200)，见 QEMU hw/misc/armsse-mhu.c
+ *   CPU0 = to-Linux：FreeRTOS 写 CPU0 SET(0x04) 通知 Linux(IRQ50)
+ *   CPU1 = to-RTOS ：Linux 写 CPU1 SET(0x14) 通知 FreeRTOS(IRQ51)；FreeRTOS 轮询 vring，
+ *                    消费后写 CPU1 CLR(0x18) 让 doorbell 落下
+ *   设备身份：Primecell CID 0xB105F00D @0xFF0..0xFFC
  */
-#define RVMB_BANK_TO_LINUX      0x000
-#define RVMB_BANK_TO_RTOS       0x100
-#define RVMB_R_STAT             0x00
-#define RVMB_R_SET              0x04
-#define RVMB_R_CLEAR            0x08
-#define RVMB_RPMSG_DBELL        0x1     /* channel0 bit0 */
-#define RVMB_TL_SET             (RVMB_BANK_TO_LINUX + RVMB_R_SET)   /* 0x04：kick Linux */
-#define REG_REVISION            0xF0    /* IP 版本号 (RO)，v1=0x0100 */
+#define MHU_CPU0_SET            0x04
+#define MHU_CPU0_CLR            0x08
+#define MHU_CPU1_SET            0x14
+#define MHU_CPU1_CLR            0x18
+#define MHU_RPMSG_DBELL         0x1     /* doorbell bit0 */
+#define MHU_CIDR0               0xFF0   /* Primecell Component ID byte0 */
+#define MHU_CID_MAGIC           0xB105F00DU
 
-/* 兼容旧名（openamp_adapter 等遗留代码引用；映射到 channel0 等价偏移）*/
-#define REG_LINUX_TRIG          RVMB_TL_SET                          /* 0x04 */
-#define REG_RTOS_TRIG           (RVMB_BANK_TO_RTOS + RVMB_R_SET)     /* 0x104 */
-#define REG_LINUX_ACK           (RVMB_BANK_TO_LINUX + RVMB_R_CLEAR)  /* 0x08 */
-#define REG_RTOS_ACK            (RVMB_BANK_TO_RTOS + RVMB_R_CLEAR)   /* 0x108 */
+/* 兼容旧名（vestigial openamp_adapter 引用）→ 映射到 MHU 偏移 */
+#define REG_LINUX_TRIG          MHU_CPU0_SET   /* 0x04 */
+#define REG_RTOS_TRIG           MHU_CPU1_SET   /* 0x14 */
+#define REG_LINUX_ACK           MHU_CPU0_CLR   /* 0x08 */
+#define REG_RTOS_ACK            MHU_CPU1_CLR   /* 0x18 */
 
 /**
  * PLIC 中断号

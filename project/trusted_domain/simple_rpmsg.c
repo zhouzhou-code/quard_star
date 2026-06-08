@@ -139,8 +139,8 @@ static void mailbox_kick_to_linux(void)
 {
     volatile uint32_t *mailbox = (volatile uint32_t *)MAILBOX_BASE_ADDR;
 
-    /* RV-Mailbox：写 to-Linux bank ch0 SET 置 bit0 → 触发 IRQ50 通知 Linux */
-    MAILBOX_REG(mailbox, RVMB_TL_SET) = RVMB_RPMSG_DBELL;
+    /* ARM MHU：写 CPU0 SET 置 bit0 → 触发 IRQ50 通知 Linux */
+    MAILBOX_REG(mailbox, MHU_CPU0_SET) = MHU_RPMSG_DBELL;
 
     /* RISC-V 内存屏障 */
     __asm__ volatile("fence ow,ow" ::: "memory");
@@ -496,6 +496,10 @@ void simple_rpmsg_poll(void)
     /* 4. 更新本地消费索引 */
     rx_avail_idx++;
 
-    /* 5. 发送硬件门铃通知 Linux 回收 */
+    /* 5. 清 MHU CPU1 门铃（接收方应答 Linux 的 kick，让 IRQ51 落下）*/
+    MAILBOX_REG((volatile uint32_t *)MAILBOX_BASE_ADDR, MHU_CPU1_CLR) = MHU_RPMSG_DBELL;
+    __asm__ volatile("fence ow,ow" ::: "memory");
+
+    /* 6. 发送硬件门铃通知 Linux 回收 */
     mailbox_kick_to_linux();
 }

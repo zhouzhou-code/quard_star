@@ -62,19 +62,17 @@
 #define QUARD_STAR_MAILBOX_SIZE        0x1000
 
 /*
- * RV-Mailbox：doorbell 编程范式参考 ARM MHU v1/v2，自主实现。
- * 双 bank：to-Linux @0x000 (IRQ50，本驱动是接收方)；to-RTOS @0x100 (IRQ51，本驱动是发送方)。
- * 每通道 stride 0x20：STAT(0x00,RO)/SET(0x04,W1S)/CLEAR(0x08,W1C)/MASK_*(0x0C-0x14)。
- * rpmsg 用 channel0 bit0 作 notify doorbell。
+ * 标准 ARM MHU(SSE-200, hw/misc/armsse-mhu.c)寄存器模型：
+ *   CPU0 方向 = to-Linux(IRQ50，本驱动是接收方)：STAT 0x00 / SET 0x04 / CLR 0x08
+ *   CPU1 方向 = to-RTOS (IRQ51，本驱动是发送方)：STAT 0x10 / SET 0x14 / CLR 0x18
+ * 中断 = (STATy != 0)，写 CLR 自动落下；无 mask 寄存器。doorbell 用 bit0。
+ * 设备身份用 ARM Primecell CID 魔数 0xB105F00D 校验(CID0..3 @0xFF0..0xFFC)。
  */
-#define RVMB_BANK_TO_LINUX             0x000
-#define RVMB_BANK_TO_RTOS              0x100
-#define RVMB_R_SET                     0x04
-#define RVMB_R_CLEAR                   0x08
-#define RVMB_R_MASK_CLEAR              0x14
-#define RVMB_RPMSG_DBELL               0x1    /* channel0 bit0 */
-#define RVMB_TL_CLEAR                  (RVMB_BANK_TO_LINUX + RVMB_R_CLEAR)       /* 0x08 */
-#define RVMB_TL_MASK_CLEAR             (RVMB_BANK_TO_LINUX + RVMB_R_MASK_CLEAR)  /* 0x14 */
-#define RVMB_TR_SET                    (RVMB_BANK_TO_RTOS  + RVMB_R_SET)         /* 0x104 */
+#define MHU_CPU0_STAT                  0x00   /* to-Linux STAT (RO) */
+#define MHU_CPU0_CLR                   0x08   /* to-Linux CLR (W1C)：Linux 应答 */
+#define MHU_CPU1_SET                   0x14   /* to-RTOS SET (W1S)：Linux 通知 FreeRTOS */
+#define MHU_RPMSG_DBELL                0x1    /* doorbell bit0 */
+#define MHU_CIDR0                      0xFF0  /* Primecell Component ID byte0 */
+#define MHU_CID_MAGIC                  0xB105F00DU
 
 #endif /* _QUARD_STAR_RPROC_H */
