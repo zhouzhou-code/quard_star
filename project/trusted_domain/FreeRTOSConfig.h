@@ -102,4 +102,10 @@ to exclude the API function. */
 /* 调试断言 */
 #define configASSERT( x ) if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ); }
 
+
+/* libmetal(OpenAMP) 需要：互斥量持有者查询 */
+#ifndef INCLUDE_xSemaphoreGetMutexHolder
+#define INCLUDE_xSemaphoreGetMutexHolder 1
+#endif
+
 #endif /* FREERTOS_CONFIG_H */
